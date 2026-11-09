@@ -7,10 +7,11 @@ that one edit.
 - **Sources** are your raw recordings, for example OBS captures.
 - **The timeline** is where you cut the full video. It works like Vegas: a
   click anywhere moves the cursor there.
-- **Scenes** are output formats. A scene holds layers, and each layer shows
-  the timeline video with its own crop, position and size, like a source in an
-  OBS scene. The vertical scene uses the same recording twice: the facecam
-  cropped on top and the gameplay cropped below.
+- **Layouts** are output formats (horizontal, vertical, square). A layout holds
+  **layers**. Each layer shows a video track, or one file such as a logo, with
+  its own crop, position and size, like a source in an OBS scene. A vertical
+  layout can show the same track twice: the facecam cropped on top and the
+  gameplay cropped below.
 
 ## Install
 
@@ -26,14 +27,15 @@ CPU encoder otherwise.
 
 1. **Import media** and pick your recordings. The first recording sets the
    program size, so crops line up with it.
-2. Drag a recording onto **Video 1**, or double-click it to add it at the
-   cursor. Music goes on the **Music** track.
+2. Drag a recording onto a video track, or double-click it to add it at the
+   cursor on the selected track. Music and sound go on an audio track. Add
+   tracks with **+ Video track** and **+ Audio track**.
 3. Cut the video on the timeline.
-4. Pick a scene in **Scenes** and set up its layers in the preview. The
-   Vertical scene starts with two uncropped copies of the recording, stacked.
+4. Pick a layout in **Layouts** and set up its layers in the preview. The
+   Vertical layout starts with two uncropped copies of Video 1, stacked.
    Alt-drag to crop each one (for example the facecam and the gameplay), then
    drag and resize them into place. OmniCanvas never sets a crop for you.
-5. **Export** renders every ticked scene into the folder you choose.
+5. **Export** renders every ticked layout into the folder you choose.
 
 ### Timeline (Vegas habits)
 
@@ -43,25 +45,28 @@ CPU encoder otherwise.
 | Play, then stop and go back | Space |
 | Play, then pause where you are | Enter |
 | Split | S (splits the selected clip, or every clip under the cursor) |
-| Move a clip | Drag it |
+| Move a clip | Drag it, also onto another track of the same kind |
+| Select a track | Click its name. Double-click to rename it |
 | Trim a clip | Drag its left or right edge |
 | Step one frame | Left and Right arrows (Shift: one second) |
 | Zoom | Mouse wheel. Shift and wheel scrolls |
 | Delete | Delete |
 | Undo, redo | Ctrl+Z, Ctrl+Y |
 
-### Scene canvas (OBS habits)
+### Layout canvas (OBS habits)
 
 | Action | How |
 |---|---|
-| Select a layer | Click it, or click it in **Sources** |
+| Add a layer | **+** in **Layers**: an existing video track, a new video track, or a file |
+| Change what a layer shows | Select it, then pick in **Shows** |
+| Select a layer | Click it, or click it in **Layers** |
 | Move | Drag it. Edges snap to the canvas; hold Ctrl to stop snapping |
 | Resize | Drag a red handle. Corners keep the shape; hold Shift to stretch |
 | Crop | Hold Alt and drag a handle. Cropped edges turn green |
 | Exact numbers | Double-click the layer, or Ctrl+E (Edit Transform) |
 | More | Right-click: Fit to Screen, Stretch to Screen, Center, order, lock |
 
-**Multiview** shows every scene side by side. Click one to edit it.
+**Multiview** shows every layout side by side. Click one to edit it.
 
 ### Files OBS writes
 
@@ -72,7 +77,8 @@ original file.
 ## Project file
 
 A project is saved as a `.omni` file: plain JSON with the media paths, the
-clips on each track and the scenes with their layers. It is the same data a
+tracks, the clips on each track, and the layouts with their layers. Files
+saved by the first version are converted when opened. It is the same data a
 future MCP server will read and change.
 
 ## Development
@@ -92,17 +98,20 @@ release builds.
 
 | Path | What it holds |
 |---|---|
-| `src/model/` | Project types and default scenes |
-| `src/engine/graph.ts` | Builds the FFmpeg filter graph for one scene |
+| `src/model/` | Project types, default layouts, file conversion |
+| `src/engine/graph.ts` | Builds the FFmpeg filter graph for one layout |
 | `src/engine/ffmpeg.ts` | Runs FFmpeg and ffprobe, export and preview copies |
 | `src/engine/player.ts` | Preview playback and drawing |
-| `src/components/` | Panels: media, scenes, sources, timeline, dialogs |
+| `src/components/` | Panels: media, layouts, layers, timeline, dialogs |
 
 ## Roadmap
 
-1. Shorts markers: drag across a range to mark a short; each exports through
-   a vertical scene with its own extra layers.
+1. Audio: volume and fades per clip and track, waveforms, voice clean-up,
+   loudness levelling, music that lowers under speech.
 2. Local Whisper transcription with word-level captions.
-3. AI highlight suggestions (through MCP from ChatGPT or Claude, an API key,
+3. Shorts markers: drag across a range to mark a short; each exports through
+   a vertical layout with its own extra layers.
+4. A general motion tracker: click what to follow, and a layer's crop moves
+   with it.
+5. AI highlight suggestions (through MCP from ChatGPT or Claude, an API key,
    or a local model).
-4. Ball tracking that moves the gameplay crop.
