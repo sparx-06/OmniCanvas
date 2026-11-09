@@ -47,6 +47,7 @@ CPU encoder otherwise.
 | Play, then pause where you are | Enter |
 | Split | S (splits the selected clip, or every clip under the cursor) |
 | Move a clip | Drag it, also onto another track of the same kind |
+| Rearrange clips | Drop a clip onto another clip: it is inserted at the nearer edge and later clips move along. Split a clip and drop the first half on the second half to swap them |
 | Select a track | Click its name. Double-click to rename it |
 | Trim a clip | Drag its left or right edge |
 | Step one frame | Left and Right arrows (Shift: one second) |

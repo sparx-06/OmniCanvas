@@ -7,6 +7,7 @@ import { S, useStore } from "../store";
 import { player } from "../engine/player";
 import { addClip, addTrack, deleteSelection, deleteTrack, splitAtCursor, trackAccepts } from "../actions";
 import { layersForNewTrack } from "../model/defaults";
+import { insertClip, insertPoint } from "../model/edit";
 import type { Clip, Track } from "../model/types";
 import { clamp, clipEnd, projectDuration, snapFrame, tc } from "../util";
 
@@ -20,7 +21,7 @@ export function Timeline() {
   const trackId = useStore(s => s.trackId);
   const scroller = useRef<HTMLDivElement>(null);
   const lanes = useRef<HTMLDivElement>(null);
-  const [bad, setBad] = useState<string | null>(null);
+  const [insertAt, setInsertAt] = useState<{ track: string; t: number } | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const total = projectDuration(project);
   const width = Math.max((total + 30) * pps, 600);
@@ -82,7 +83,10 @@ export function Timeline() {
         start = Math.max(0, Math.abs(a - start) <= Math.abs(b - start) ? a : b);
         const track = trackUnder(ev) ?? S().project.clips.find(x => x.id === c.id)!.track;
         patch = { start, track };
-        setBad(overlaps(track, start, start + len) ? c.id : null);
+        // Dropping onto other clips inserts there; show where.
+        setInsertAt(overlaps(track, start, start + len)
+          ? { track, t: insertPoint(others().filter(x => x.track === track).sort((a, b) => a.start - b.start), timeAt(ev.clientX)) }
+          : null);
       } else if (mode === "l") {
         const prevEnd = Math.max(0, ...others().filter(x => x.track === c.track && clipEnd(x) <= o.start + 1e-6).map(clipEnd));
         let start = snapT(snapFrame(o.start + dt, fps));
@@ -101,19 +105,25 @@ export function Timeline() {
       S().live(p => { Object.assign(p.clips.find(x => x.id === c.id)!, patch); });
       player.draw();
     };
-    const up = () => {
+    const up = (ev: PointerEvent) => {
       el.removeEventListener("pointermove", mv); el.removeEventListener("pointerup", up); el.removeEventListener("pointercancel", up);
       if (!started) return;
       const cur = S().project.clips.find(x => x.id === c.id)!;
       if (mode === "move" && overlaps(cur.track, cur.start, clipEnd(cur))) {
-        S().live(p => { Object.assign(p.clips.find(x => x.id === c.id)!, { start: o.start, track: o.track }); });
-        S().notify("Clips on the same track can't overlap. Move it to an empty spot.");
-      } else if (cur.track !== o.track) {
+        // Insert at the drop point and push the other clips along (Premiere's insert drag).
+        const tp = ev.type === "pointercancel" ? o.start : timeAt(ev.clientX);
+        S().live(p => {
+          Object.assign(p.clips.find(x => x.id === c.id)!, { start: o.start, track: o.track });
+          insertClip(p, c.id, { start: o.start, track: o.track }, tp, cur.track);
+        });
+      }
+      const moved = S().project.clips.find(x => x.id === c.id)!;
+      if (moved.track !== o.track) {
         // Moving a clip onto a video track nobody shows yet gives layouts a layer for it.
         const tr = S().project.tracks.find(t => t.id === cur.track);
         if (tr?.kind === "video") S().live(p => layersForNewTrack(p, tr.id, tr.name));
       }
-      setBad(null);
+      setInsertAt(null);
       S().end();
       player.seek(S().time);
     };
@@ -192,10 +202,11 @@ export function Timeline() {
             <div key={`l${t.id}`} className={`lane ${t.kind}`} data-track={t.id} style={{ height: rowH(t) }} onPointerDown={e => onBgDown(e, t)}
               onDragOver={e => { if (e.dataTransfer.types.includes("application/x-omni-media")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } }}
               onDrop={e => onDrop(e, t)}>
+              {insertAt?.track === t.id && <div className="insert-marker" style={{ left: insertAt.t * pps }} />}
               {project.clips.filter(c => c.track === t.id).map(c => {
                 const m = media.get(c.mediaId), len = c.out - c.in;
                 return (
-                  <div key={c.id} className={`clip ${t.kind}${c.id === clipId ? " sel" : ""}${bad === c.id ? " bad" : ""}${t.muted ? " muted" : ""}`}
+                  <div key={c.id} className={`clip ${t.kind}${c.id === clipId ? " sel" : ""}${insertAt && c.id === clipId ? " inserting" : ""}${t.muted ? " muted" : ""}`}
                     style={{ left: c.start * pps, width: Math.max(2, len * pps) }}
                     onPointerDown={e => onClipDown(e, c)}
                     onPointerMove={e => { const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); (e.currentTarget as HTMLElement).style.cursor = e.clientX - r.left < EDGE || r.right - e.clientX < EDGE ? "ew-resize" : "default"; }}
