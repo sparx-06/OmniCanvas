@@ -1,0 +1,51 @@
+name: Build Windows installer
+
+# Every push to main builds the app and publishes the installer on the
+# repository's Releases page. Nobody needs to compile anything locally.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Download FFmpeg and ffprobe
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile ffmpeg.zip
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg-dl
+          $bin = Get-ChildItem ffmpeg-dl -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+          New-Item -ItemType Directory -Force src-tauri/binaries | Out-Null
+          Copy-Item $bin.FullName "src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe"
+          Copy-Item (Join-Path $bin.DirectoryName "ffprobe.exe") "src-tauri/binaries/ffprobe-x86_64-pc-windows-msvc.exe"
+          & "src-tauri/binaries/ffmpeg-x86_64-pc-windows-msvc.exe" -hide_banner -version | Select-Object -First 1
+
+      - run: npm ci
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: build-${{ github.run_number }}
+          releaseName: "OmniCanvas build ${{ github.run_number }}"
+          releaseBody: "Download the file ending in -setup.exe below and run it. Windows may warn that the app is unsigned; choose More info, then Run anyway."
+          releaseDraft: false
+          prerelease: true

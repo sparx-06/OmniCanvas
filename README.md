@@ -1,0 +1,105 @@
+# OmniCanvas
+
+A Windows video editor for gaming channels. You edit the video once, and every
+format (horizontal for YouTube, vertical for Shorts and TikTok) renders from
+that one edit.
+
+- **Sources** are your raw recordings, for example OBS captures.
+- **The timeline** is where you cut the full video. It works like Vegas: a
+  click anywhere moves the cursor there.
+- **Scenes** are output formats. A scene holds layers, and each layer shows
+  the timeline video with its own crop, position and size, like a source in an
+  OBS scene. The vertical scene uses the same recording twice: the facecam
+  cropped on top and the gameplay cropped below.
+
+## Install
+
+1. Open the repository's **Releases** page.
+2. Download the file ending in `-setup.exe` from the newest build.
+3. Run it. Windows may say the app is unsigned: choose **More info**, then
+   **Run anyway**.
+
+FFmpeg is included. Exports use the NVIDIA encoder when the PC has one and the
+CPU encoder otherwise.
+
+## Using it
+
+1. **Import media** and pick your recordings. The first recording sets the
+   program size, so crops line up with it.
+2. Drag a recording onto **Video 1**, or double-click it to add it at the
+   cursor. Music goes on the **Music** track.
+3. Cut the video on the timeline.
+4. Pick a scene in **Scenes** and set up its layers in the preview.
+5. **Export** renders every ticked scene into the folder you choose.
+
+### Timeline (Vegas habits)
+
+| Action | How |
+|---|---|
+| Move the cursor | Click anywhere on the timeline, including on a clip |
+| Play, then stop and go back | Space |
+| Play, then pause where you are | Enter |
+| Split | S (splits the selected clip, or every clip under the cursor) |
+| Move a clip | Drag it |
+| Trim a clip | Drag its left or right edge |
+| Step one frame | Left and Right arrows (Shift: one second) |
+| Zoom | Mouse wheel. Shift and wheel scrolls |
+| Delete | Delete |
+| Undo, redo | Ctrl+Z, Ctrl+Y |
+
+### Scene canvas (OBS habits)
+
+| Action | How |
+|---|---|
+| Select a layer | Click it, or click it in **Sources** |
+| Move | Drag it. Edges snap to the canvas; hold Ctrl to stop snapping |
+| Resize | Drag a red handle. Corners keep the shape; hold Shift to stretch |
+| Crop | Hold Alt and drag a handle. Cropped edges turn green |
+| Exact numbers | Double-click the layer, or Ctrl+E (Edit Transform) |
+| More | Right-click: Fit to Screen, Stretch to Screen, Center, order, lock |
+
+**Multiview** shows every scene side by side. Click one to edit it.
+
+### Files OBS writes
+
+If the preview can't play a recording (for example HEVC or some MKV files),
+OmniCanvas makes a 720p preview copy in the background. Export always uses the
+original file.
+
+## Project file
+
+A project is saved as a `.omni` file: plain JSON with the media paths, the
+clips on each track and the scenes with their layers. It is the same data a
+future MCP server will read and change.
+
+## Development
+
+The app is Tauri 2 (Rust shell) with a React and TypeScript interface. FFmpeg
+and ffprobe run as bundled sidecars.
+
+```
+npm install
+npm run tauri dev
+```
+
+`npm run tauri dev` needs `ffmpeg` and `ffprobe` in `src-tauri/binaries/`,
+named with the Rust target triple, for example
+`ffmpeg-x86_64-pc-windows-msvc.exe`. The GitHub workflow downloads them for
+release builds.
+
+| Path | What it holds |
+|---|---|
+| `src/model/` | Project types and default scenes |
+| `src/engine/graph.ts` | Builds the FFmpeg filter graph for one scene |
+| `src/engine/ffmpeg.ts` | Runs FFmpeg and ffprobe, export and preview copies |
+| `src/engine/player.ts` | Preview playback and drawing |
+| `src/components/` | Panels: media, scenes, sources, timeline, dialogs |
+
+## Roadmap
+
+1. Shorts markers: drag across a range to mark a short; each exports through
+   a vertical scene with its own extra layers.
+2. Local Whisper transcription with word-level captions.
+3. AI highlight suggestions (through MCP from ChatGPT or Claude, an API key,
+   or a local model).
+4. Ball tracking that moves the gameplay crop.
