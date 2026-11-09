@@ -29,7 +29,10 @@ CPU encoder otherwise.
 2. Drag a recording onto **Video 1**, or double-click it to add it at the
    cursor. Music goes on the **Music** track.
 3. Cut the video on the timeline.
-4. Pick a scene in **Scenes** and set up its layers in the preview.
+4. Pick a scene in **Scenes** and set up its layers in the preview. The
+   Vertical scene starts with two uncropped copies of the recording, stacked.
+   Alt-drag to crop each one (for example the facecam and the gameplay), then
+   drag and resize them into place. OmniCanvas never sets a crop for you.
 5. **Export** renders every ticked scene into the folder you choose.
 
 ### Timeline (Vegas habits)

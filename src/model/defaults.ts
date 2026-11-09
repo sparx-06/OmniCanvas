@@ -19,16 +19,16 @@ export function horizontalScene(pw: number, ph: number): Scene {
 }
 
 /**
- * Vertical starting point: facecam on top, gameplay below.
- * The crops are only a starting point. The user sets the real ones by Alt-dragging.
+ * Vertical starting point: two uncropped copies of the recording, stacked.
+ * The app never guesses a crop. The user crops each copy (Alt-drag) and
+ * resizes it into place: typically the facecam on top and gameplay below.
  */
 export function verticalScene(pw: number, ph: number): Scene {
-  const W = 1080, H = 1920, top = Math.round(W * 9 / 16), boxH = H - top;
-  const cw = Math.round(ph * (W / boxH)), side = Math.max(0, Math.round((pw - cw) / 2));
-  const gameplay: Layer = { id: uid(), name: "Gameplay", source: "program", visible: true, locked: false,
-    x: 0, y: top, w: W, h: boxH, crop: { l: side, t: 0, r: pw - cw - side, b: 0 } };
+  const W = 1080, H = 1920, h = Math.round(W * ph / pw);
   const facecam: Layer = { id: uid(), name: "Facecam", source: "program", visible: true, locked: false,
-    x: 0, y: 0, w: W, h: top, crop: { l: Math.round(pw * .75), t: Math.round(ph * .75), r: 0, b: 0 } };
+    x: 0, y: 0, w: W, h, crop: { l: 0, t: 0, r: 0, b: 0 } };
+  const gameplay: Layer = { id: uid(), name: "Gameplay", source: "program", visible: true, locked: false,
+    x: 0, y: h, w: W, h, crop: { l: 0, t: 0, r: 0, b: 0 } };
   return { id: uid(), name: "Vertical", width: W, height: H, background: "#0b0c0f", layers: [gameplay, facecam] };
 }
 
@@ -40,9 +40,12 @@ export function newProject(): Project {
 
 /** Change the program size and keep every crop on the same part of the picture. */
 export function resizeProgram(p: Project, w: number, h: number) {
-  const fx = w / p.width, fy = h / p.height;
+  const fx = w / p.width, fy = h / p.height, aspectChanged = Math.abs(w / h - p.width / p.height) > 0.01;
   for (const s of p.scenes) for (const l of s.layers) {
+    const uncropped = !l.crop.l && !l.crop.r && !l.crop.t && !l.crop.b;
     l.crop = { l: Math.round(l.crop.l * fx), r: Math.round(l.crop.r * fx), t: Math.round(l.crop.t * fy), b: Math.round(l.crop.b * fy) };
+    // An uncropped layer keeps the recording's shape when that shape changes.
+    if (uncropped && aspectChanged) l.h = Math.round(l.w * h / w);
   }
   p.width = w; p.height = h;
 }

@@ -63,8 +63,8 @@ export function ScenesDock() {
       </header>
       {adding && <div className="add-menu">
         <button onClick={() => add(horizontalScene(pw, ph))}>Horizontal 16:9</button>
-        <button onClick={() => add({ ...verticalScene(pw, ph), name: "Vertical" })}>Vertical 9:16, facecam top</button>
-        <button onClick={() => add({ id: uid(), name: "Vertical, gameplay only", width: 1080, height: 1920, background: "#000000", layers: [{ ...fitLayer("Gameplay", pw, ph, 1080, 1920), x: 0, y: 0, w: 1080, h: 1920, crop: { l: Math.round((pw - ph * 1080 / 1920) / 2), r: Math.round((pw - ph * 1080 / 1920) / 2), t: 0, b: 0 } }] })}>Vertical 9:16, gameplay only</button>
+        <button onClick={() => add({ ...verticalScene(pw, ph), name: "Vertical" })}>Vertical 9:16, two sources</button>
+        <button onClick={() => add({ id: uid(), name: "Vertical, one source", width: 1080, height: 1920, background: "#000000", layers: [fitLayer("Gameplay", pw, ph, 1080, 1920)] })}>Vertical 9:16, one source</button>
         <button onClick={() => add({ id: uid(), name: "Square", width: 1080, height: 1080, background: "#000000", layers: [fitLayer("Gameplay", pw, ph, 1080, 1080)] })}>Square 1:1</button>
       </div>}
       <ul className="list">
