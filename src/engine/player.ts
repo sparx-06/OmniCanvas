@@ -5,7 +5,7 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Layout, Media, Track } from "../model/types";
 import { S, useStore } from "../store";
-import { clamp, clipAt, clipEnd, cropRect, projectDuration, sourceSize } from "../util";
+import { clamp, clipAt, clipEnd, cropRect, orderedLayers, projectDuration, sourceSize } from "../util";
 
 type El = HTMLVideoElement | HTMLImageElement;
 
@@ -42,7 +42,7 @@ class Player {
     this.seek(S().time);
   }
 
-  /** role: a track id for timeline playback, or "layer" for a file shown by a layer. */
+  /** One element per media item and track. */
   private element(m: Media, role: string): El {
     const key = `${m.id}#${role}#${m.proxyPath ?? m.path}`;
     let el = this.els.get(key);
@@ -56,7 +56,6 @@ class Player {
     } else {
       const v = document.createElement("video");
       v.preload = "auto"; v.playsInline = true;
-      if (role === "layer") { v.muted = true; v.loop = true; }
       v.addEventListener("loadeddata", () => this.draw());
       v.addEventListener("seeked", () => this.draw());
       v.addEventListener("error", () => { if (!m.proxyPath) this.onMediaError(m); });
@@ -70,13 +69,6 @@ class Player {
 
   private mediaOf(id: string) { return S().project.media.find(m => m.id === id); }
 
-  /** Media files shown by a visible layer in any layout. */
-  private layerFiles(): Media[] {
-    const ids = new Set<string>();
-    for (const l of S().project.layouts.flatMap(x => x.layers)) if (l.visible && l.source.type === "media") ids.add(l.source.mediaId);
-    return [...ids].map(id => this.mediaOf(id)).filter((m): m is Media => !!m);
-  }
-
   // ---- transport ----
   play() {
     const st = S(); if (st.playing) return;
@@ -85,7 +77,6 @@ class Player {
     this.startT = t;
     this.base = performance.now() - t * 1000;
     useStore.setState({ playing: true, time: t });
-    for (const m of this.layerFiles()) { const el = this.element(m, "layer"); if (el instanceof HTMLVideoElement) el.play().catch(() => {}); }
     requestAnimationFrame(this.tick);
   }
 
@@ -110,16 +101,11 @@ class Player {
         if (Math.abs(v.currentTime - want) > 0.004) v.currentTime = want;
       }
     }
-    for (const m of this.layerFiles()) {
-      const el = this.element(m, "layer");
-      if (el instanceof HTMLVideoElement && m.duration > 0) el.currentTime = t % m.duration;
-    }
     this.draw();
   }
 
   private pauseAll(except: El[] = []) {
-    for (const [k, el] of this.els) if (el instanceof HTMLVideoElement && !el.paused && !except.includes(el) && !k.includes("#layer#")) el.pause();
-    if (!S().playing) for (const [k, el] of this.els) if (k.includes("#layer#") && el instanceof HTMLVideoElement) el.pause();
+    for (const el of this.els.values()) if (el instanceof HTMLVideoElement && !el.paused && !except.includes(el)) el.pause();
   }
 
   private tick = (now: number) => {
@@ -171,32 +157,19 @@ class Player {
     for (const v of this.views) v();
   }
 
-  /** The drawable for a layer's source, or null while it loads. */
-  layerImage(src: Layout["layers"][number]["source"]): CanvasImageSource | null {
-    if (src.type === "track") return this.trackCanvas(src.trackId);
-    const m = this.mediaOf(src.mediaId); if (!m) return null;
-    const el = this.element(m, "layer");
-    return ready(el) ? el : null;
-  }
 }
 
 export const player = new Player();
 
 /** Draw a layout into a 2D context at the given scale (canvas px per layout px). */
 export function drawLayout(ctx: CanvasRenderingContext2D, layout: Layout, scale: number) {
-  const p = S().project;
+  const p = S().project, ss = sourceSize(p);
   ctx.fillStyle = layout.background || "#000";
   ctx.fillRect(0, 0, layout.width * scale, layout.height * scale);
   ctx.imageSmoothingQuality = "high";
-  for (const l of layout.layers) {
+  for (const l of orderedLayers(p, layout)) {
     if (!l.visible || l.w < 1 || l.h < 1) continue;
-    const img = player.layerImage(l.source); if (!img) continue;
-    const ss = sourceSize(p, l.source), c = cropRect(l, ss.w, ss.h);
-    // A file can be drawn at its natural size even if the probe size differs.
-    let kx = 1, ky = 1;
-    if (l.source.type === "media" && (img instanceof HTMLVideoElement || img instanceof HTMLImageElement)) {
-      const [iw, ih] = dims(img); if (iw && ih) { kx = iw / ss.w; ky = ih / ss.h; }
-    }
-    ctx.drawImage(img, c.x * kx, c.y * ky, c.w * kx, c.h * ky, l.x * scale, l.y * scale, l.w * scale, l.h * scale);
+    const c = cropRect(l, ss.w, ss.h);
+    ctx.drawImage(player.trackCanvas(l.source.trackId), c.x, c.y, c.w, c.h, l.x * scale, l.y * scale, l.w * scale, l.h * scale);
   }
 }

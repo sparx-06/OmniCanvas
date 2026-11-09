@@ -25,16 +25,24 @@ export const trackById = (p: Project, id: string): Track | undefined => p.tracks
 export const videoTracks = (p: Project) => p.tracks.filter(t => t.kind === "video");
 export const audioTracks = (p: Project) => p.tracks.filter(t => t.kind === "audio");
 
-/** Pixel size of what a layer crops from. */
-export function sourceSize(p: Project, s: LayerSource): { w: number; h: number } {
-  if (s.type === "track") return { w: p.width, h: p.height };
-  const m = p.media.find(x => x.id === s.mediaId);
-  return { w: m?.width || p.width, h: m?.height || p.height };
+/** Pixel size of what a layer crops from: the program frame. */
+export function sourceSize(p: Project, _s?: LayerSource): { w: number; h: number } {
+  return { w: p.width, h: p.height };
 }
 
 export function sourceLabel(p: Project, s: LayerSource): string {
-  if (s.type === "track") return trackById(p, s.trackId)?.name ?? "Missing track";
-  return p.media.find(m => m.id === s.mediaId)?.name ?? "Missing file";
+  return trackById(p, s.trackId)?.name ?? "Missing track";
+}
+
+/**
+ * Layers in drawing order, back to front. The timeline decides: a higher video
+ * track draws in front of a lower one, in every layout. Between layers of the
+ * same track, the layout's own list order decides.
+ */
+export function orderedLayers(p: Project, layout: { layers: Layer[] }): Layer[] {
+  const rank = new Map(videoTracks(p).map((t, i) => [t.id, i]));   // 0 = top of the timeline = front
+  const r = (l: Layer) => rank.get(l.source.trackId) ?? 1e9;
+  return layout.layers.map((l, i) => ({ l, i })).sort((a, b) => r(b.l) - r(a.l) || a.i - b.i).map(x => x.l);
 }
 
 /** The part of the source a layer shows, clamped to the source. */

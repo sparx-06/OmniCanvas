@@ -5,9 +5,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { S, currentLayout, useStore } from "../store";
 import { drawLayout, player } from "../engine/player";
 import type { Layer, Layout, Project } from "../model/types";
-import { clamp, sourceSize } from "../util";
+import { clamp, orderedLayers, sourceSize } from "../util";
 import { fitLayer, fitToScreen } from "../model/defaults";
-import { deleteSelection } from "../actions";
+import { deleteSelection, moveLayerWithinTrack } from "../actions";
 
 type Handle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 const HANDLES: Handle[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
@@ -29,14 +29,15 @@ export function updateLayer(layoutId: string, layerId: string, patch: Partial<La
 }
 
 export function resetLayer(p: Project, lo: Layout, l: Layer): Partial<Layer> {
-  const ss = sourceSize(p, l.source);
+  const ss = sourceSize(p);
   const f = fitLayer(l.name, l.source, ss.w, ss.h, lo.width, lo.height);
   return { x: f.x, y: f.y, w: f.w, h: f.h, crop: f.crop };
 }
 
 export function layerMenuItems(lo: Layout, l: Layer): [string, () => void][] {
   const p = S().project;
-  const idx = lo.layers.findIndex(x => x.id === l.id);
+  const same = lo.layers.filter(x => x.source.trackId === l.source.trackId);
+  const idx = same.findIndex(x => x.id === l.id);
   const items: [string, () => void][] = [
     ["Edit Transform…", () => S().set({ dialog: "transform", layerId: l.id })],
     ["Reset Transform", () => updateLayer(lo.id, l.id, resetLayer(p, lo, l))],
@@ -44,8 +45,9 @@ export function layerMenuItems(lo: Layout, l: Layer): [string, () => void][] {
     ["Stretch to Screen", () => updateLayer(lo.id, l.id, { x: 0, y: 0, w: lo.width, h: lo.height })],
     ["Center to Screen", () => updateLayer(lo.id, l.id, { x: Math.round((lo.width - l.w) / 2), y: Math.round((lo.height - l.h) / 2) })],
   ];
-  if (idx < lo.layers.length - 1) items.push(["Move Up", () => S().commit(pr => { const s = pr.layouts.find(x => x.id === lo.id)!; const i = s.layers.findIndex(x => x.id === l.id); [s.layers[i], s.layers[i + 1]] = [s.layers[i + 1], s.layers[i]]; })]);
-  if (idx > 0) items.push(["Move Down", () => S().commit(pr => { const s = pr.layouts.find(x => x.id === lo.id)!; const i = s.layers.findIndex(x => x.id === l.id); [s.layers[i], s.layers[i - 1]] = [s.layers[i - 1], s.layers[i]]; })]);
+  // Front and back between tracks come from the timeline; within one track the layout decides.
+  if (idx < same.length - 1) items.push(["Bring Forward (same track)", () => moveLayerWithinTrack(lo.id, l.id, 1)]);
+  if (idx > 0) items.push(["Send Backward (same track)", () => moveLayerWithinTrack(lo.id, l.id, -1)]);
   items.push([l.locked ? "Unlock" : "Lock", () => updateLayer(lo.id, l.id, { locked: !l.locked })]);
   items.push(["Remove", () => { S().set({ layerId: l.id, clipId: null }); deleteSelection(); }]);
   return items;
@@ -138,9 +140,9 @@ export function LayoutCanvas() {
     return null;
   };
   const hitLayer = (pt: { x: number; y: number }) => {
-    const lo = currentLayout();
-    for (let i = lo.layers.length - 1; i >= 0; i--) {
-      const l = lo.layers[i];
+    const order = orderedLayers(S().project, currentLayout());
+    for (let i = order.length - 1; i >= 0; i--) {
+      const l = order[i];
       if (l.visible && pt.x >= l.x && pt.x <= l.x + l.w && pt.y >= l.y && pt.y <= l.y + l.h) return l;
     }
     return null;
@@ -201,7 +203,7 @@ export function LayoutCanvas() {
       patch = { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(hh) };
     } else {
       // Crop keeps the picture's scale: the box shrinks with the crop.
-      const h = d.handle!, ss = sourceSize(p, o.source);
+      const h = d.handle!, ss = sourceSize(p);
       const cw = ss.w - o.crop.l - o.crop.r, ch = ss.h - o.crop.t - o.crop.b;
       const sx = cw / o.w, sy = ch / o.h;
       const crop = { ...o.crop };

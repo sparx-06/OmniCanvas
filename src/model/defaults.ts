@@ -9,7 +9,7 @@ export function fitLayer(name: string, source: LayerSource, sw: number, sh: numb
 }
 
 export function fitToScreen(p: Project, l: Layer, lw: number, lh: number): Partial<Layer> {
-  const ss = sourceSize(p, l.source), c = cropRect(l, ss.w, ss.h);
+  const ss = sourceSize(p), c = cropRect(l, ss.w, ss.h);
   const s = Math.min(lw / c.w, lh / c.h), w = Math.round(c.w * s), h = Math.round(c.h * s);
   return { x: Math.round((lw - w) / 2), y: Math.round((lh - h) / 2), w, h };
 }
@@ -70,7 +70,6 @@ export function layersForNewTrack(p: Project, trackId: string, name: string) {
 export function resizeProgram(p: Project, w: number, h: number) {
   const fx = w / p.width, fy = h / p.height, aspectChanged = Math.abs(w / h - p.width / p.height) > 0.01;
   for (const s of p.layouts) for (const l of s.layers) {
-    if (l.source.type !== "track") continue;
     const uncropped = !l.crop.l && !l.crop.r && !l.crop.t && !l.crop.b;
     l.crop = { l: Math.round(l.crop.l * fx), r: Math.round(l.crop.r * fx), t: Math.round(l.crop.t * fy), b: Math.round(l.crop.b * fy) };
     // An uncropped layer keeps the recording's shape when that shape changes.
@@ -102,20 +101,42 @@ export function normalizeProject(raw: any): Project {
     .map((c: any) => ({ ...c, track: legacyTrack(String(c.track)), volume: Number.isFinite(c.volume) ? c.volume : 1 }))
     .filter((c: any) => mediaIds.has(c.mediaId) && trackIds.has(c.track));
 
+  const width = +raw.width || d.width, height = +raw.height || d.height;
   const rawLayouts = Array.isArray(raw.layouts) ? raw.layouts : Array.isArray(raw.scenes) ? raw.scenes : [];
+
+  // Early version-2 files could show a file directly in a layer. Each such file
+  // becomes an image or video clip on its own track at the top of the timeline,
+  // and the layer's crop is converted to program pixels (the file is fitted into
+  // the program frame, the same way every clip is).
+  const fileTracks = new Map<string, string>();
+  const end = Math.max(5, ...clips.map((c: any) => c.start + c.out - c.in));
   const layouts: Layout[] = rawLayouts.length ? rawLayouts.map((s: any) => ({
     ...s,
-    layers: (Array.isArray(s.layers) ? s.layers : []).map((l: any) => ({
-      ...l,
-      source: l.source && typeof l.source === "object" && (l.source.type === "track" || l.source.type === "media")
-        ? l.source : { type: "track", trackId: firstVideo },
-    })),
+    layers: (Array.isArray(s.layers) ? s.layers : []).map((l: any) => {
+      const src = l.source && typeof l.source === "object" ? l.source : null;
+      if (src?.type === "track" && trackIds.has(src.trackId)) return { ...l, source: { type: "track", trackId: src.trackId } };
+      if (src?.type === "media") {
+        const m = media.find((x: any) => x.id === src.mediaId);
+        if (!m) return null;
+        let tid = fileTracks.get(m.id);
+        if (!tid) {
+          tid = uid(); fileTracks.set(m.id, tid);
+          tracks.unshift({ id: tid, kind: "video", name: m.name, muted: true });
+          clips.push({ id: uid(), mediaId: m.id, track: tid, start: 0, in: 0, out: m.kind === "image" ? end : (m.duration || end), volume: 1 });
+        }
+        const mw = m.width || width, mh = m.height || height, k = Math.min(width / mw, height / mh);
+        const ox = (width - mw * k) / 2, oy = (height - mh * k) / 2, c = l.crop || { l: 0, t: 0, r: 0, b: 0 };
+        return { ...l, source: { type: "track", trackId: tid },
+          crop: { l: Math.round(ox + c.l * k), r: Math.round(ox + c.r * k), t: Math.round(oy + c.t * k), b: Math.round(oy + c.b * k) } };
+      }
+      return { ...l, source: { type: "track", trackId: firstVideo } };
+    }).filter(Boolean),
   })) : d.layouts;
 
   return {
     version: 2,
     name: typeof raw.name === "string" ? raw.name : d.name,
-    width: +raw.width || d.width, height: +raw.height || d.height, fps: +raw.fps || d.fps,
+    width, height, fps: +raw.fps || d.fps,
     media, tracks, clips, layouts,
   };
 }

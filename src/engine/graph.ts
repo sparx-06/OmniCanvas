@@ -4,14 +4,14 @@
 // Pipeline:
 //   1. Each video track that a visible layer shows becomes one stream, [T<n>]:
 //      clips fitted into the program frame, gaps and letterbox bars transparent.
-//   2. Each file a layer shows becomes a looping stream, [M<n>], at its own size.
-//   3. Audio: every unmuted video track's clip audio, plus every unmuted audio
+//   2. Audio: every unmuted video track's clip audio, plus every unmuted audio
 //      track's clips placed at their start times, mixed into [aout].
-//   4. The layout canvas is filled with its background, and each visible layer
-//      crops its source and overlays it at its position and size.
+//   3. The layout canvas is filled with its background, and each visible layer
+//      crops its track and overlays it at its position and size, back to front in
+//      timeline order (a higher track draws in front).
 
 import type { Clip, Layout, Media, Project } from "../model/types";
-import { clipEnd, cropRect, even, sourceSize } from "../util";
+import { clipEnd, cropRect, even, orderedLayers } from "../util";
 
 export type Encoder = "nvenc" | "x264";
 
@@ -43,9 +43,9 @@ export function buildRenderJob(p: Project, layout: Layout, outPath: string, enc:
     return nIn++;
   };
 
-  const layers = layout.layers.filter(l => l.visible && l.w >= 1 && l.h >= 1 &&
-    (l.source.type === "track" ? p.tracks.some(t => t.id === (l.source as any).trackId && t.kind === "video") : media.has(l.source.mediaId)));
-  const keyOf = (l: (typeof layers)[number]) => l.source.type === "track" ? `T_${l.source.trackId}` : `M_${l.source.mediaId}`;
+  const videoIds = new Set(p.tracks.filter(t => t.kind === "video").map(t => t.id));
+  const layers = orderedLayers(p, layout).filter(l => l.visible && l.w >= 1 && l.h >= 1 && videoIds.has(l.source.trackId));
+  const keyOf = (l: (typeof layers)[number]) => `T_${l.source.trackId}`;
   const uses = new Map<string, number>();
   for (const l of layers) uses.set(keyOf(l), (uses.get(keyOf(l)) ?? 0) + 1);
 
@@ -53,7 +53,7 @@ export function buildRenderJob(p: Project, layout: Layout, outPath: string, enc:
   const clear = (d: string) => `color=c=black@0:s=${PW}x${PH}:r=${FPS}:d=${d},format=rgba,format=yuva420p,setsar=1`;
   const audioParts: string[] = [];
 
-  // 1 and 3a. Video tracks.
+  // 1 and 2a. Video tracks.
   p.tracks.filter(t => t.kind === "video").forEach((tr, ti) => {
     const clips = p.clips.filter(c => c.track === tr.id).sort((a, b) => a.start - b.start);
     const needV = (uses.get(`T_${tr.id}`) ?? 0) > 0;
@@ -92,7 +92,7 @@ export function buildRenderJob(p: Project, layout: Layout, outPath: string, enc:
     if (needA) audioParts.push(`[A_${tr.id}]`);
   });
 
-  // 3b. Audio tracks.
+  // 2b. Audio tracks.
   p.tracks.filter(t => t.kind === "audio" && !t.muted).forEach((tr, ti) => {
     p.clips.filter(c => c.track === tr.id).forEach((c, j) => {
       const m = media.get(c.mediaId);
@@ -106,15 +106,6 @@ export function buildRenderJob(p: Project, layout: Layout, outPath: string, enc:
   else if (audioParts.length === 1) f.push(`${audioParts[0]}apad=whole_dur=${T},atrim=duration=${T}[aout]`);
   else f.push(`${audioParts.join("")}amix=inputs=${audioParts.length}:duration=longest:normalize=0,apad=whole_dur=${T},atrim=duration=${T}[aout]`);
 
-  // 2. Files shown by layers, looped over the whole video.
-  for (const [key] of uses) {
-    if (!key.startsWith("M_")) continue;
-    const m = media.get(key.slice(2))!;
-    if (m.kind === "image") inputs.push("-loop", "1", "-framerate", String(FPS), "-t", T, "-i", m.path);
-    else inputs.push("-stream_loop", "-1", "-t", T, "-i", m.path);
-    f.push(`[${nIn++}:v:0]fps=${FPS},format=yuva420p,setsar=1,trim=duration=${T},setpts=PTS-STARTPTS[${key}]`);
-  }
-
   // Split each source once per layer that uses it.
   const next = new Map<string, number>();
   for (const [key, n] of uses) if (n > 1) f.push(`[${key}]split=${n}${Array.from({ length: n }, (_, k) => `[${key}_${k}]`).join("")}`);
@@ -123,11 +114,10 @@ export function buildRenderJob(p: Project, layout: Layout, outPath: string, enc:
     const k = next.get(key) ?? 0; next.set(key, k + 1); return `[${key}_${k}]`;
   };
 
-  // 4. Layout composition.
+  // 3. Layout composition.
   f.push(`color=c=${hex(layout.background)}:s=${LW}x${LH}:r=${FPS}:d=${T},format=yuv420p[bg0]`);
   layers.forEach((l, k) => {
-    const ss = l.source.type === "track" ? { w: PW, h: PH } : sourceSize(p, l.source);
-    const c = cropRect(l, ss.w, ss.h);
+    const c = cropRect(l, PW, PH);
     f.push(`${take(keyOf(l))}crop=${Math.round(c.w)}:${Math.round(c.h)}:${Math.round(c.x)}:${Math.round(c.y)},scale=${Math.max(1, Math.round(l.w))}:${Math.max(1, Math.round(l.h))}:flags=lanczos,setsar=1[l${k}]`);
     f.push(`[bg${k}][l${k}]overlay=x=${Math.round(l.x)}:y=${Math.round(l.y)}:shortest=1:format=auto[bg${k + 1}]`);
   });

@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { S, useStore } from "../store";
 import { player } from "../engine/player";
-import { addClip, addTrack, deleteSelection, deleteTrack, splitAtCursor, trackAccepts } from "../actions";
+import { addClip, addTrack, deleteSelection, deleteTrack, moveTrack, splitAtCursor, trackAccepts } from "../actions";
 import { layersForNewTrack } from "../model/defaults";
 import { insertClip, insertPoint } from "../model/edit";
 import type { Clip, Track } from "../model/types";
@@ -23,6 +23,36 @@ export function Timeline() {
   const lanes = useRef<HTMLDivElement>(null);
   const [insertAt, setInsertAt] = useState<{ track: string; t: number } | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
+  const [trackDrag, setTrackDrag] = useState<{ id: string; over: string; after: boolean } | null>(null);
+
+  // Drag a track header up or down to reorder tracks of the same kind.
+  // For video tracks this changes what draws in front in every layout.
+  const onHeadDown = (e: React.PointerEvent, t: Track) => {
+    if (e.button !== 0 || (e.target as HTMLElement).closest("button, input")) return;
+    const el = e.currentTarget as HTMLElement, y0 = e.clientY;
+    let dragging = false, target: { over: string; after: boolean } | null = null;
+    el.setPointerCapture(e.pointerId);
+    const mv = (ev: PointerEvent) => {
+      if (!dragging && Math.abs(ev.clientY - y0) < 5) return;
+      dragging = true;
+      const head = document.elementsFromPoint(ev.clientX, ev.clientY).find(n => (n as HTMLElement).dataset?.head) as HTMLElement | undefined;
+      const over = head && S().project.tracks.find(x => x.id === head.dataset.head);
+      if (over && over.kind === t.kind) {
+        const r = head!.getBoundingClientRect();
+        target = { over: over.id, after: ev.clientY > r.top + r.height / 2 };
+        setTrackDrag({ id: t.id, ...target });
+      }
+    };
+    const up = () => {
+      el.removeEventListener("pointermove", mv); el.removeEventListener("pointerup", up); el.removeEventListener("pointercancel", up);
+      setTrackDrag(null);
+      if (!dragging || !target || target.over === t.id) return;
+      const same = S().project.tracks.filter(x => x.kind === t.kind && x.id !== t.id);
+      const i = same.findIndex(x => x.id === target!.over);
+      moveTrack(t.id, i + (target.after ? 1 : 0));
+    };
+    el.addEventListener("pointermove", mv); el.addEventListener("pointerup", up); el.addEventListener("pointercancel", up);
+  };
   const total = projectDuration(project);
   const width = Math.max((total + 30) * pps, 600);
   const media = new Map(project.media.map(m => [m.id, m]));
@@ -186,7 +216,9 @@ export function Timeline() {
             {ticks.map(s => <div key={s} className="tick" style={{ left: s * pps }}>{tc(s, project.fps).slice(0, 8)}</div>)}
           </div>
           {project.tracks.map(t => [
-            <div key={`h${t.id}`} className={`head ${t.kind}${t.id === trackId ? " sel" : ""}`} style={{ height: rowH(t) }}
+            <div key={`h${t.id}`} data-head={t.id} title="Drag up or down to reorder. Higher video tracks draw in front."
+              className={`head ${t.kind}${t.id === trackId ? " sel" : ""}${trackDrag?.over === t.id ? (trackDrag.after ? " drop-after" : " drop-before") : ""}${trackDrag?.id === t.id ? " dragging" : ""}`}
+              style={{ height: rowH(t) }} onPointerDown={e => onHeadDown(e, t)}
               onClick={() => S().set({ trackId: t.id })} onDoubleClick={() => setRenaming(t.id)}>
               {renaming === t.id
                 ? <input autoFocus defaultValue={t.name} onBlur={e => { const v = e.target.value.trim(); if (v) S().commit(p => { p.tracks.find(x => x.id === t.id)!.name = v; }); setRenaming(null); }}

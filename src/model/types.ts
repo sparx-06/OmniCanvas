@@ -37,17 +37,16 @@ export interface Clip {
   volume: number;          // 1 = unchanged
 }
 
-// Crop is in pixels of the layer's source, measured in from each edge (as in OBS).
-// For a track source that is the program size; for a file it is the file's size.
+// Crop is in program pixels, measured in from each edge (as in OBS).
 export interface Crop { l: number; t: number; r: number; b: number }
 
-/** What a layer shows: whatever is playing on a video track, or one file for the whole video. */
-export type LayerSource =
-  | { type: "track"; trackId: string }
-  | { type: "media"; mediaId: string };
+/** What a layer shows: whatever is playing on one video track. */
+export type LayerSource = { type: "track"; trackId: string };
 
-// A layer is one placement of a source inside a layout, like a source in an OBS scene.
-// Several layers can show the same track with different crops.
+// A layer is one placement of a video track inside a layout, like a source in an
+// OBS scene. A layout can show the same track several times with different crops.
+// Front and back are not stored here: the track order in the timeline decides it
+// for every layout (see orderedLayers in util.ts).
 export interface Layer {
   id: string;
   name: string;
@@ -58,8 +57,8 @@ export interface Layer {
   crop: Crop;
 }
 
-// A layout is an output format: a canvas size plus its layers.
-// layers[0] is drawn first (back); the last layer is in front.
+// A layout is an output format: a canvas size plus its layers. Among layers of the
+// same track, an earlier entry in this list is drawn behind a later one.
 export interface Layout {
   id: string;
   name: string;

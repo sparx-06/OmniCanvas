@@ -44,7 +44,7 @@ export function TransformDialog() {
         {num("Crop top", l.crop.t, v => set({ crop: { ...l.crop, t: Math.max(0, v) } }))}
         {num("Crop bottom", l.crop.b, v => set({ crop: { ...l.crop, b: Math.max(0, v) } }))}
       </div>
-      <p className="hint">Position and size are in layout pixels ({sc.width}×{sc.height}). Crop is in pixels of the source, {sourceLabel(project, l.source)} ({sourceSize(project, l.source).w}×{sourceSize(project, l.source).h}).</p>
+      <p className="hint">Position and size are in layout pixels ({sc.width}×{sc.height}). Crop is in pixels of the source, {sourceLabel(project, l.source)} ({project.width}×{project.height}).</p>
       <div className="actions">
         <button className="btn" onClick={() => set(resetLayer(project, sc, l))}>Reset</button>
         <button className="btn" onClick={() => set(fitToScreen(project, l, sc.width, sc.height))}>Fit to screen</button>

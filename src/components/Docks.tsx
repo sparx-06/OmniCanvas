@@ -1,10 +1,10 @@
 // Left: Project Media (Vegas name). Right: Layouts and Layers.
 import { useState } from "react";
 import { S, useStore } from "../store";
-import { addClip, addLayer, importMedia, setLayerSource, targetTrack, trackAccepts } from "../actions";
+import { addClip, addLayer, importMedia, moveLayerWithinTrack, setLayerSource, targetTrack, trackAccepts } from "../actions";
 import { horizontalLayout, verticalLayout, fitLayer } from "../model/defaults";
-import type { Layout, LayerSource } from "../model/types";
-import { sourceLabel, uid } from "../util";
+import type { Layer, Layout } from "../model/types";
+import { uid } from "../util";
 import { ContextMenu, layerMenuItems, updateLayer } from "./LayoutCanvas";
 
 const fmtDur = (d: number) => { const s = Math.round(d); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
@@ -53,7 +53,7 @@ export function LayoutsDock() {
   const [adding, setAdding] = useState(false);
   const sel = layouts.find(s => s.id === layoutId) ?? layouts[0];
   const add = (lo: Layout) => { S().commit(p => { p.layouts.push(lo); }); S().set({ layoutId: lo.id, layerId: null, mode: "layout" }); setAdding(false); };
-  const src: LayerSource = { type: "track", trackId: v1 };
+  const src = { type: "track" as const, trackId: v1 };
   return (
     <section className="dock">
       <header><h2>Layouts</h2>
@@ -90,10 +90,11 @@ export function LayoutsDock() {
   );
 }
 
-const srcKey = (s: LayerSource) => s.type === "track" ? `track:${s.trackId}` : `media:${s.mediaId}`;
-const parseKey = (k: string): LayerSource => { const [t, id] = k.split(/:(.*)/); return t === "track" ? { type: "track", trackId: id } : { type: "media", mediaId: id }; };
-
-/** The layers of the current layout, front at the top (OBS calls these sources). */
+/**
+ * The layers of the current layout, grouped by video track in timeline order:
+ * the top group is the top track, which draws in front in every layout.
+ * Within a group, the top layer is in front.
+ */
 export function LayersDock() {
   const project = useStore(s => s.project);
   const layoutId = useStore(s => s.layoutId);
@@ -104,53 +105,54 @@ export function LayersDock() {
   const lo = project.layouts.find(s => s.id === layoutId) ?? project.layouts[0];
   const sel = lo.layers.find(l => l.id === layerId);
   const vtracks = project.tracks.filter(t => t.kind === "video");
-  const files = project.media.filter(m => m.kind !== "audio");
-  const move = (dir: 1 | -1) => sel && S().commit(p => {
-    const s = p.layouts.find(x => x.id === lo.id)!, i = s.layers.findIndex(x => x.id === sel.id), j = i + dir;
-    if (j >= 0 && j < s.layers.length) [s.layers[i], s.layers[j]] = [s.layers[j], s.layers[i]];
-  });
+  const groups = vtracks.map(t => ({ track: t, layers: lo.layers.filter(l => l.source.trackId === t.id).reverse() })).filter(g => g.layers.length);
+  const same = sel ? lo.layers.filter(l => l.source.trackId === sel.source.trackId) : [];
+  const pos = sel ? same.findIndex(l => l.id === sel.id) : -1;
+
+  const row = (l: Layer) => (
+    <li key={l.id} className={l.id === layerId ? "sel" : ""} onClick={() => S().set({ layerId: l.id, clipId: null, mode: "layout" })}
+      onDoubleClick={() => setEditing(l.id)}
+      onContextMenu={e => { e.preventDefault(); S().set({ layerId: l.id, clipId: null }); setMenu({ x: e.clientX, y: e.clientY, id: l.id }); }}>
+      {editing === l.id
+        ? <input autoFocus defaultValue={l.name} onBlur={e => { const v = e.target.value.trim(); if (v) updateLayer(lo.id, l.id, { name: v }); setEditing(null); }}
+            onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); if (e.key === "Escape") setEditing(null); }} />
+        : <span className={`layer-name${l.visible ? "" : " dim"}`}>{l.name}</span>}
+      <span className="row">
+        <button className={`icon${l.visible ? " on" : ""}`} title={l.visible ? "Hide in this layout" : "Show in this layout"} onClick={e => { e.stopPropagation(); updateLayer(lo.id, l.id, { visible: !l.visible }); }}>
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z" />{l.visible ? <circle cx="8" cy="8" r="2" fill="currentColor" /> : <path d="M2.5 13.5l11-11" />}</svg></button>
+        <button className={`icon${l.locked ? " on" : ""}`} title={l.locked ? "Unlock" : "Lock"} onClick={e => { e.stopPropagation(); updateLayer(lo.id, l.id, { locked: !l.locked }); }}>
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="3.5" y="7" width="9" height="7" rx="1" />{l.locked ? <path d="M5.5 7V5a2.5 2.5 0 015 0v2" /> : <path d="M5.5 7V5a2.5 2.5 0 014.8-1" />}</svg></button>
+      </span>
+    </li>
+  );
+
   return (
     <section className="dock">
       <header><h2>Layers</h2>
         <div className="row">
           <button className="btn tiny" title="Add layer" onClick={() => setAdding(a => !a)}>+</button>
-          <button className="btn tiny" title="Move up" disabled={!sel} onClick={() => move(1)}>↑</button>
-          <button className="btn tiny" title="Move down" disabled={!sel} onClick={() => move(-1)}>↓</button>
+          <button className="btn tiny" title="Bring forward within its track" disabled={!sel || pos >= same.length - 1} onClick={() => sel && moveLayerWithinTrack(lo.id, sel.id, 1)}>↑</button>
+          <button className="btn tiny" title="Send backward within its track" disabled={!sel || pos <= 0} onClick={() => sel && moveLayerWithinTrack(lo.id, sel.id, -1)}>↓</button>
           <button className="btn tiny" title="Edit Transform (Ctrl+E)" disabled={!sel} onClick={() => S().set({ dialog: "transform" })}>⤢</button>
         </div>
       </header>
       {adding && <div className="add-menu" onClick={() => setAdding(false)}>
-        <span className="menu-h">Existing video track</span>
+        <span className="menu-h">Show a video track in this layout</span>
         {vtracks.map(t => <button key={t.id} onClick={() => addLayer({ type: "track", trackId: t.id })}>{t.name}</button>)}
         <button onClick={() => addLayer({ type: "newTrack" })}>New video track</button>
-        {files.length > 0 && <span className="menu-h">File, shown for the whole video</span>}
-        {files.map(m => <button key={m.id} onClick={() => addLayer({ type: "media", mediaId: m.id })}>{m.name}</button>)}
       </div>}
       <ul className="list">
-        {[...lo.layers].reverse().map(l => (
-          <li key={l.id} className={l.id === layerId ? "sel" : ""} onClick={() => S().set({ layerId: l.id, clipId: null, mode: "layout" })}
-            onDoubleClick={() => setEditing(l.id)}
-            onContextMenu={e => { e.preventDefault(); S().set({ layerId: l.id, clipId: null }); setMenu({ x: e.clientX, y: e.clientY, id: l.id }); }}>
-            {editing === l.id
-              ? <input autoFocus defaultValue={l.name} onBlur={e => { const v = e.target.value.trim(); if (v) updateLayer(lo.id, l.id, { name: v }); setEditing(null); }}
-                  onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); if (e.key === "Escape") setEditing(null); }} />
-              : <span className={`layer-name${l.visible ? "" : " dim"}`}>{l.name}<small>{sourceLabel(project, l.source)}</small></span>}
-            <span className="row">
-              <button className={`icon${l.visible ? " on" : ""}`} title={l.visible ? "Hide" : "Show"} onClick={e => { e.stopPropagation(); updateLayer(lo.id, l.id, { visible: !l.visible }); }}>
-                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z" />{l.visible ? <circle cx="8" cy="8" r="2" fill="currentColor" /> : <path d="M2.5 13.5l11-11" />}</svg></button>
-              <button className={`icon${l.locked ? " on" : ""}`} title={l.locked ? "Unlock" : "Lock"} onClick={e => { e.stopPropagation(); updateLayer(lo.id, l.id, { locked: !l.locked }); }}>
-                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="3.5" y="7" width="9" height="7" rx="1" />{l.locked ? <path d="M5.5 7V5a2.5 2.5 0 015 0v2" /> : <path d="M5.5 7V5a2.5 2.5 0 014.8-1" />}</svg></button>
-            </span>
-          </li>
-        ))}
-        {!lo.layers.length && <li className="empty">No layers yet. Place a clip on a video track and its layers appear here, or press + to add a track or a file.</li>}
+        {groups.map(g => [
+          <li key={`g${g.track.id}`} className="group">{g.track.name}</li>,
+          ...g.layers.map(row),
+        ])}
+        {!groups.length && <li className="empty">No layers yet. Place a clip on a video track and its layers appear here, or press + to add one.</li>}
       </ul>
       {sel && <label className="shows">Shows
-        <select value={srcKey(sel.source)} onChange={e => setLayerSource(lo.id, sel.id, parseKey(e.target.value))}>
-          <optgroup label="Video tracks">{vtracks.map(t => <option key={t.id} value={`track:${t.id}`}>{t.name}</option>)}</optgroup>
-          {files.length > 0 && <optgroup label="Files">{files.map(m => <option key={m.id} value={`media:${m.id}`}>{m.name}</option>)}</optgroup>}
+        <select value={sel.source.trackId} onChange={e => setLayerSource(lo.id, sel.id, { type: "track", trackId: e.target.value })}>
+          {vtracks.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
         </select></label>}
-      <p className="hint">Drag to move. Drag a red handle to resize. Hold Alt and drag a handle to crop.</p>
+      <p className="hint">Higher tracks in the timeline draw in front. Drag to move, drag a red handle to resize, Alt-drag a handle to crop.</p>
       {menu && (() => { const l = lo.layers.find(x => x.id === menu.id); return l ? <ContextMenu x={menu.x} y={menu.y} items={layerMenuItems(lo, l)} onClose={() => setMenu(null)} /> : null; })()}
     </section>
   );

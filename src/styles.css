@@ -162,3 +162,11 @@ body.resizing-y, body.resizing-y * { cursor: row-resize !important; }
 .layer-name small { color: var(--muted); font-family: var(--f-mono); font-size: 10.5px; }
 .shows { display: flex; align-items: center; gap: 8px; padding: 6px 9px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
 .shows select { flex: 1; }
+.list li.group { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); padding: 8px 8px 2px; cursor: default; }
+.list li.group:hover { background: none; }
+.list li.group + li { margin-top: 0; }
+.list li:not(.group):not(.empty) { padding-left: 14px; }
+.head { cursor: grab; }
+.head.dragging { opacity: .6; cursor: grabbing; }
+.head.drop-before { box-shadow: inset 0 3px 0 var(--accent); }
+.head.drop-after { box-shadow: inset 0 -3px 0 var(--accent); }

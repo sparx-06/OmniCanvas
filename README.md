@@ -8,10 +8,13 @@ that one edit.
 - **The timeline** is where you cut the full video. It works like Vegas: a
   click anywhere moves the cursor there.
 - **Layouts** are output formats (horizontal, vertical, square). A layout holds
-  **layers**. Each layer shows a video track, or one file such as a logo, with
-  its own crop, position and size, like a source in an OBS scene. A vertical
-  layout can show the same track twice: the facecam cropped on top and the
-  gameplay cropped below.
+  **layers**. Each layer shows a video track with its own crop, position and
+  size, like a source in an OBS scene. A vertical layout can show the same
+  track twice: the facecam cropped on top and the gameplay cropped below.
+- **What draws in front is set once, in the timeline.** A higher video track
+  draws in front of a lower one in every layout. Drag a track header up or
+  down to change it. A layout only decides where each track goes and how it is
+  cropped.
 
 ## Install
 
@@ -34,6 +37,7 @@ CPU encoder otherwise.
 4. Pick a layout in **Layouts** and set up its layers in the preview. Layouts
    start empty. When a video track gets its first clip, each layout gets a
    layer for that track; the Vertical layout gets two uncropped copies, stacked.
+   A logo or overlay is an image clip on its own video track above the others.
    Alt-drag to crop each one (for example the facecam and the gameplay), then
    drag and resize them into place. OmniCanvas never sets a crop for you.
 5. **Export** renders every ticked layout into the folder you choose.
@@ -49,6 +53,7 @@ CPU encoder otherwise.
 | Move a clip | Drag it, also onto another track of the same kind |
 | Rearrange clips | Drop a clip onto another clip: it is inserted at the nearer edge and later clips move along. Split a clip and drop the first half on the second half to swap them |
 | Select a track | Click its name. Double-click to rename it |
+| Reorder tracks | Drag a track header up or down. Higher video tracks draw in front |
 | Trim a clip | Drag its left or right edge |
 | Step one frame | Left and Right arrows (Shift: one second) |
 | Zoom | Mouse wheel. Shift and wheel scrolls |
@@ -59,8 +64,9 @@ CPU encoder otherwise.
 
 | Action | How |
 |---|---|
-| Add a layer | **+** in **Layers**: an existing video track, a new video track, or a file |
-| Change what a layer shows | Select it, then pick in **Shows** |
+| Add a layer | **+** in **Layers**: an existing video track (for another crop of it) or a new video track |
+| Change which track a layer shows | Select it, then pick in **Shows** |
+| Order two crops of the same track | ↑ and ↓ in **Layers**, or right-click: Bring Forward, Send Backward |
 | Select a layer | Click it, or click it in **Layers** |
 | Move | Drag it. Edges snap to the canvas; hold Ctrl to stop snapping |
 | Resize | Drag a red handle. Corners keep the shape; hold Shift to stretch |
@@ -85,7 +91,7 @@ original file.
 
 A project is saved as a `.omni` file: plain JSON with the media paths, the
 tracks, the clips on each track, and the layouts with their layers. Files
-saved by the first version are converted when opened. It is the same data a
+saved by earlier versions are converted when opened. It is the same data a
 future MCP server will read and change.
 
 ## Development

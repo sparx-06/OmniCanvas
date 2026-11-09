@@ -112,10 +112,38 @@ export function deleteSelection() {
 
 function newTrack(p: Project, kind: TrackKind): Track {
   const t: Track = { id: uid(), kind, name: nextTrackName(p, kind), muted: false };
-  // Keep video tracks above audio tracks, like Vegas.
-  const idx = kind === "video" ? p.tracks.filter(x => x.kind === "video").length : p.tracks.length;
-  p.tracks.splice(idx, 0, t);
+  // A new video track goes on top, so it draws in front (an overlay track).
+  // Audio tracks go at the bottom, below every video track, like Vegas.
+  if (kind === "video") p.tracks.unshift(t); else p.tracks.push(t);
   return t;
+}
+
+/**
+ * Move a track to a new position among the tracks of its kind. For video tracks
+ * this changes what draws in front in every layout: higher is in front.
+ */
+export function moveTrack(id: string, toIndex: number) {
+  S().commit(p => {
+    const t = p.tracks.find(x => x.id === id); if (!t) return;
+    const same = p.tracks.filter(x => x.kind === t.kind && x.id !== id);
+    same.splice(Math.max(0, Math.min(same.length, toIndex)), 0, t);
+    const video = t.kind === "video" ? same : p.tracks.filter(x => x.kind === "video");
+    const audio = t.kind === "audio" ? same : p.tracks.filter(x => x.kind === "audio");
+    p.tracks = [...video, ...audio];
+  });
+}
+
+/** Move a layer in front of or behind the next layer of the same track in this layout. */
+export function moveLayerWithinTrack(layoutId: string, layerId: string, dir: 1 | -1) {
+  S().commit(p => {
+    const lo = p.layouts.find(x => x.id === layoutId); if (!lo) return;
+    const i = lo.layers.findIndex(x => x.id === layerId); if (i < 0) return;
+    const tid = lo.layers[i].source.trackId;
+    let j = i + dir;
+    while (j >= 0 && j < lo.layers.length && lo.layers[j].source.trackId !== tid) j += dir;
+    if (j < 0 || j >= lo.layers.length) return;
+    [lo.layers[i], lo.layers[j]] = [lo.layers[j], lo.layers[i]];
+  });
 }
 
 /** Add an empty track. Layouts get a layer for it when its first clip is placed. */
@@ -147,16 +175,14 @@ export async function deleteTrack(id: string) {
 
 /**
  * Add a layer to the current layout, like OBS "Add source": an existing video
- * track, a new video track, or one file shown for the whole video.
+ * track again (for another crop of it), or a new video track.
  */
-export function addLayer(choice: { type: "track"; trackId: string } | { type: "newTrack" } | { type: "media"; mediaId: string }) {
+export function addLayer(choice: { type: "track"; trackId: string } | { type: "newTrack" }) {
   const lo = currentLayout();
   let layerId = "";
   S().commit(p => {
-    let source: LayerSource;
-    if (choice.type === "newTrack") source = { type: "track", trackId: newTrack(p, "video").id };
-    else source = choice;
-    const ss = sourceSize(p, source);
+    const source: LayerSource = choice.type === "newTrack" ? { type: "track", trackId: newTrack(p, "video").id } : choice;
+    const ss = sourceSize(p);
     const l = fitLayer(sourceLabel(p, source), source, ss.w, ss.h, lo.width, lo.height);
     p.layouts.find(x => x.id === lo.id)!.layers.push(l);
     layerId = l.id;
@@ -164,14 +190,12 @@ export function addLayer(choice: { type: "track"; trackId: string } | { type: "n
   S().set({ layerId, clipId: null, mode: "layout" });
 }
 
-/** Point a layer at a different source. The crop is reset when the source size changes. */
+/** Point a layer at a different video track. Its crop and placement stay. */
 export function setLayerSource(layoutId: string, layerId: string, source: LayerSource) {
   S().commit(p => {
     const l = p.layouts.find(x => x.id === layoutId)?.layers.find(x => x.id === layerId);
     if (!l) return;
-    const a = sourceSize(p, l.source), b = sourceSize(p, source);
     l.source = source;
-    if (a.w !== b.w || a.h !== b.h) l.crop = { l: 0, t: 0, r: 0, b: 0 };
   });
 }
 
