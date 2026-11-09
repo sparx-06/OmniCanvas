@@ -2,7 +2,7 @@
 import { Command, type Child } from "@tauri-apps/plugin-shell";
 import { writeTextFile, mkdir } from "@tauri-apps/plugin-fs";
 import { appLocalDataDir, join, tempDir } from "@tauri-apps/api/path";
-import type { Media, Project, Scene } from "../model/types";
+import type { Layout, Media, Project } from "../model/types";
 import { buildRenderJob, proxyArgs, type Encoder } from "./graph";
 import { fileName, uid } from "../util";
 
@@ -67,22 +67,22 @@ export async function makeProxy(m: Media, onProgress: (p: number) => void): Prom
   throw new Error("Could not make a preview copy.");
 }
 
-export interface ExportResult { scene: Scene; path: string; encoder: Encoder; error?: string }
+export interface ExportResult { layout: Layout; path: string; encoder: Encoder; error?: string }
 
-/** Render one scene. Tries the NVIDIA encoder first and falls back to x264. */
-export async function exportScene(p: Project, scene: Scene, outPath: string, quality: number,
+/** Render one layout. Tries the NVIDIA encoder first and falls back to x264. */
+export async function exportLayout(p: Project, layout: Layout, outPath: string, quality: number,
   onProgress: (fraction: number) => void, setCancel: (fn: () => Promise<void>) => void): Promise<ExportResult> {
   const script = await join(await tempDir(), `omnicanvas-${uid()}.txt`);
   for (const enc of [encoderGuess, "x264"] as Encoder[]) {
-    const job = buildRenderJob(p, scene, outPath, enc, quality);
+    const job = buildRenderJob(p, layout, outPath, enc, quality);
     await writeTextFile(script, job.filter);
     const args = ["-hide_banner", ...job.inputs, "-/filter_complex", script, ...job.output];
     const h = runFfmpeg(args, s => onProgress(Math.min(1, s / job.duration)));
     setCancel(h.cancel);
     const r = await h.done;
-    if (r.code === 0) return { scene, path: outPath, encoder: enc };
+    if (r.code === 0) return { layout, path: outPath, encoder: enc };
     if (enc === "nvenc" && nvencFailure(r.log)) { encoderGuess = "x264"; continue; }
-    return { scene, path: outPath, encoder: enc, error: r.log.split("\n").filter(Boolean).slice(-4).join("\n") };
+    return { layout, path: outPath, encoder: enc, error: r.log.split("\n").filter(Boolean).slice(-4).join("\n") };
   }
-  return { scene, path: outPath, encoder: "x264", error: "Export failed." };
+  return { layout, path: outPath, encoder: "x264", error: "Export failed." };
 }

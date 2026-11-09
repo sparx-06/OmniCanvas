@@ -1,11 +1,11 @@
-// The scene canvas. Interactions copy OBS: click a layer to select it, drag
+// The layout canvas. Interactions copy OBS: click a layer to select it, drag
 // to move, drag a handle to resize (corners keep the aspect ratio unless Shift
 // is held), Alt-drag a handle to crop, double-click for Edit Transform.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { S, currentScene, useStore } from "../store";
-import { drawScene, player } from "../engine/player";
-import type { Layer, Scene } from "../model/types";
-import { clamp } from "../util";
+import { S, currentLayout, useStore } from "../store";
+import { drawLayout, player } from "../engine/player";
+import type { Layer, Layout, Project } from "../model/types";
+import { clamp, sourceSize } from "../util";
 import { fitLayer, fitToScreen } from "../model/defaults";
 import { deleteSelection } from "../actions";
 
@@ -20,28 +20,35 @@ function handlePos(l: Layer, h: Handle, k: number) {
   return { x: x * k, y: y * k };
 }
 
-export function updateLayer(sceneId: string, layerId: string, patch: Partial<Layer>, live = false) {
-  const fn = (p: any) => {
-    const l = p.scenes.find((s: Scene) => s.id === sceneId)?.layers.find((x: Layer) => x.id === layerId);
+export function updateLayer(layoutId: string, layerId: string, patch: Partial<Layer>, live = false) {
+  const fn = (p: Project) => {
+    const l = p.layouts.find(s => s.id === layoutId)?.layers.find(x => x.id === layerId);
     if (l) Object.assign(l, patch);
   };
   live ? S().live(fn) : S().commit(fn);
 }
 
-export function layerMenuItems(scene: Scene, l: Layer): [string, () => void][] {
+export function resetLayer(p: Project, lo: Layout, l: Layer): Partial<Layer> {
+  const ss = sourceSize(p, l.source);
+  const f = fitLayer(l.name, l.source, ss.w, ss.h, lo.width, lo.height);
+  return { x: f.x, y: f.y, w: f.w, h: f.h, crop: f.crop };
+}
+
+export function layerMenuItems(lo: Layout, l: Layer): [string, () => void][] {
   const p = S().project;
-  const idx = scene.layers.findIndex(x => x.id === l.id);
-  return [
+  const idx = lo.layers.findIndex(x => x.id === l.id);
+  const items: [string, () => void][] = [
     ["Edit Transform…", () => S().set({ dialog: "transform", layerId: l.id })],
-    ["Reset Transform", () => updateLayer(scene.id, l.id, { ...fitLayer(l.name, p.width, p.height, scene.width, scene.height), id: l.id, name: l.name, visible: l.visible, locked: l.locked })],
-    ["Fit to Screen", () => updateLayer(scene.id, l.id, fitToScreen(l, p.width, p.height, scene.width, scene.height))],
-    ["Stretch to Screen", () => updateLayer(scene.id, l.id, { x: 0, y: 0, w: scene.width, h: scene.height })],
-    ["Center to Screen", () => updateLayer(scene.id, l.id, { x: Math.round((scene.width - l.w) / 2), y: Math.round((scene.height - l.h) / 2) })],
-    ["Move Up", () => S().commit(pr => { const s = pr.scenes.find(x => x.id === scene.id)!; const i = s.layers.findIndex(x => x.id === l.id); if (i < s.layers.length - 1) [s.layers[i], s.layers[i + 1]] = [s.layers[i + 1], s.layers[i]]; })],
-    ["Move Down", () => S().commit(pr => { const s = pr.scenes.find(x => x.id === scene.id)!; const i = s.layers.findIndex(x => x.id === l.id); if (i > 0) [s.layers[i], s.layers[i - 1]] = [s.layers[i - 1], s.layers[i]]; })],
-    [l.locked ? "Unlock" : "Lock", () => updateLayer(scene.id, l.id, { locked: !l.locked })],
-    ["Remove", () => { S().set({ layerId: l.id, clipId: null }); deleteSelection(); }],
-  ].filter((_, i) => !(i === 5 && idx === scene.layers.length - 1) && !(i === 6 && idx === 0)) as [string, () => void][];
+    ["Reset Transform", () => updateLayer(lo.id, l.id, resetLayer(p, lo, l))],
+    ["Fit to Screen", () => updateLayer(lo.id, l.id, fitToScreen(p, l, lo.width, lo.height))],
+    ["Stretch to Screen", () => updateLayer(lo.id, l.id, { x: 0, y: 0, w: lo.width, h: lo.height })],
+    ["Center to Screen", () => updateLayer(lo.id, l.id, { x: Math.round((lo.width - l.w) / 2), y: Math.round((lo.height - l.h) / 2) })],
+  ];
+  if (idx < lo.layers.length - 1) items.push(["Move Up", () => S().commit(pr => { const s = pr.layouts.find(x => x.id === lo.id)!; const i = s.layers.findIndex(x => x.id === l.id); [s.layers[i], s.layers[i + 1]] = [s.layers[i + 1], s.layers[i]]; })]);
+  if (idx > 0) items.push(["Move Down", () => S().commit(pr => { const s = pr.layouts.find(x => x.id === lo.id)!; const i = s.layers.findIndex(x => x.id === l.id); [s.layers[i], s.layers[i - 1]] = [s.layers[i - 1], s.layers[i]]; })]);
+  items.push([l.locked ? "Unlock" : "Lock", () => updateLayer(lo.id, l.id, { locked: !l.locked })]);
+  items.push(["Remove", () => { S().set({ layerId: l.id, clipId: null }); deleteSelection(); }]);
+  return items;
 }
 
 export function ContextMenu({ x, y, items, onClose }: { x: number; y: number; items: [string, () => void][]; onClose: () => void }) {
@@ -58,48 +65,48 @@ export function ContextMenu({ x, y, items, onClose }: { x: number; y: number; it
   );
 }
 
-export function SceneCanvas() {
+export function LayoutCanvas() {
   const wrap = useRef<HTMLDivElement>(null);
   const cv = useRef<HTMLCanvasElement>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [menu, setMenu] = useState<{ x: number; y: number; layer: Layer } | null>(null);
   const project = useStore(s => s.project);
-  const sceneId = useStore(s => s.sceneId);
+  const layoutId = useStore(s => s.layoutId);
   const layerId = useStore(s => s.layerId);
-  const scene = project.scenes.find(s => s.id === sceneId) ?? project.scenes[0];
-  const drag = useRef<null | { kind: "move" | "resize" | "crop"; handle?: Handle; o: Layer; x0: number; y0: number; sceneId: string }>(null);
+  const layout = project.layouts.find(s => s.id === layoutId) ?? project.layouts[0];
+  const drag = useRef<null | { kind: "move" | "resize" | "crop"; handle?: Handle; o: Layer; x0: number; y0: number; layoutId: string }>(null);
 
-  // Fit the canvas inside the panel, keeping the scene's aspect ratio.
+  // Fit the canvas inside the panel, keeping the layout's aspect ratio.
   useLayoutEffect(() => {
     const el = wrap.current!;
     const ro = new ResizeObserver(() => {
-      const r = el.getBoundingClientRect(), sc = currentScene();
-      if (!sc) return;
-      const k = Math.min((r.width - 24) / sc.width, (r.height - 24) / sc.height);
-      setBox({ w: Math.max(10, Math.floor(sc.width * k)), h: Math.max(10, Math.floor(sc.height * k)) });
+      const r = el.getBoundingClientRect(), lo = currentLayout();
+      if (!lo) return;
+      const k = Math.min((r.width - 24) / lo.width, (r.height - 24) / lo.height);
+      setBox({ w: Math.max(10, Math.floor(lo.width * k)), h: Math.max(10, Math.floor(lo.height * k)) });
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, [scene?.width, scene?.height, sceneId]);
+  }, [layout?.width, layout?.height, layoutId]);
 
   const redraw = () => {
-    const c = cv.current, sc = currentScene(); if (!c || !sc || !box.w) return;
+    const c = cv.current, lo = currentLayout(); if (!c || !lo || !box.w) return;
     const dpr = window.devicePixelRatio || 1;
     if (c.width !== Math.round(box.w * dpr)) { c.width = Math.round(box.w * dpr); c.height = Math.round(box.h * dpr); }
     const ctx = c.getContext("2d")!;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    const k = c.width / sc.width;
-    drawScene(ctx, sc, k);
+    const k = c.width / lo.width;
+    drawLayout(ctx, lo, k);
     // Selection, drawn like OBS: red box, red handles, cropped edges in green.
-    const sel = sc.layers.find(l => l.id === S().layerId);
+    const sel = lo.layers.find(l => l.id === S().layerId);
     if (sel && sel.visible) {
       ctx.save();
       ctx.lineWidth = Math.max(1, dpr);
       const edges: [Handle, boolean][] = [["n", sel.crop.t > 0], ["s", sel.crop.b > 0], ["w", sel.crop.l > 0], ["e", sel.crop.r > 0]];
+      const x0 = sel.x * k, y0 = sel.y * k, x1 = (sel.x + sel.w) * k, y1 = (sel.y + sel.h) * k;
       for (const [e, cropped] of edges) {
         ctx.strokeStyle = cropped ? "#3ddc84" : "#ff3b30";
         ctx.beginPath();
-        const x0 = sel.x * k, y0 = sel.y * k, x1 = (sel.x + sel.w) * k, y1 = (sel.y + sel.h) * k;
         if (e === "n") { ctx.moveTo(x0, y0); ctx.lineTo(x1, y0); }
         if (e === "s") { ctx.moveTo(x0, y1); ctx.lineTo(x1, y1); }
         if (e === "w") { ctx.moveTo(x0, y0); ctx.lineTo(x0, y1); }
@@ -116,14 +123,14 @@ export function SceneCanvas() {
   };
 
   useEffect(() => player.addView(redraw), [box.w, box.h]);
-  useEffect(() => { redraw(); }, [project, layerId, sceneId, box.w]);
+  useEffect(() => { player.draw(); }, [project, layerId, layoutId, box.w]);
 
-  const toScene = (e: { clientX: number; clientY: number }) => {
-    const r = cv.current!.getBoundingClientRect(), sc = currentScene();
-    return { x: (e.clientX - r.left) * sc.width / r.width, y: (e.clientY - r.top) * sc.height / r.height, k: r.width / sc.width };
+  const toLayout = (e: { clientX: number; clientY: number }) => {
+    const r = cv.current!.getBoundingClientRect(), lo = currentLayout();
+    return { x: (e.clientX - r.left) * lo.width / r.width, y: (e.clientY - r.top) * lo.height / r.height, k: r.width / lo.width };
   };
-  const hitHandle = (l: Layer, e: React.PointerEvent | PointerEvent): Handle | null => {
-    const r = cv.current!.getBoundingClientRect(), k = r.width / currentScene().width;
+  const hitHandle = (l: Layer, e: { clientX: number; clientY: number }): Handle | null => {
+    const r = cv.current!.getBoundingClientRect(), k = r.width / currentLayout().width;
     for (const h of HANDLES) {
       const p = handlePos(l, h, k);
       if (Math.abs(e.clientX - r.left - p.x) <= HS + 2 && Math.abs(e.clientY - r.top - p.y) <= HS + 2) return h;
@@ -131,9 +138,9 @@ export function SceneCanvas() {
     return null;
   };
   const hitLayer = (pt: { x: number; y: number }) => {
-    const sc = currentScene();
-    for (let i = sc.layers.length - 1; i >= 0; i--) {
-      const l = sc.layers[i];
+    const lo = currentLayout();
+    for (let i = lo.layers.length - 1; i >= 0; i--) {
+      const l = lo.layers[i];
       if (l.visible && pt.x >= l.x && pt.x <= l.x + l.w && pt.y >= l.y && pt.y <= l.y + l.h) return l;
     }
     return null;
@@ -141,14 +148,14 @@ export function SceneCanvas() {
 
   const onDown = (e: React.PointerEvent) => {
     if (e.button === 2) return;
-    const sc = currentScene(), pt = toScene(e);
-    const sel = sc.layers.find(l => l.id === S().layerId);
+    const lo = currentLayout(), pt = toLayout(e);
+    const sel = lo.layers.find(l => l.id === S().layerId);
     let h: Handle | null = null;
     if (sel && sel.visible && !sel.locked) h = hitHandle(sel, e);
-    let target = h ? sel! : hitLayer(pt);
+    const target = h ? sel! : hitLayer(pt);
     S().set({ layerId: target?.id ?? null, clipId: null });
     if (!target || target.locked) return;
-    drag.current = { kind: h ? (e.altKey ? "crop" : "resize") : "move", handle: h ?? undefined, o: JSON.parse(JSON.stringify(target)), x0: pt.x, y0: pt.y, sceneId: sc.id };
+    drag.current = { kind: h ? (e.altKey ? "crop" : "resize") : "move", handle: h ?? undefined, o: JSON.parse(JSON.stringify(target)), x0: pt.x, y0: pt.y, layoutId: lo.id };
     S().begin();
     cv.current!.setPointerCapture(e.pointerId);
   };
@@ -156,13 +163,13 @@ export function SceneCanvas() {
   const onMove = (e: React.PointerEvent) => {
     const d = drag.current, c = cv.current!;
     if (!d) {
-      const sc = currentScene(), sel = sc.layers.find(l => l.id === S().layerId);
+      const lo = currentLayout(), sel = lo.layers.find(l => l.id === S().layerId);
       const h = sel && !sel.locked && sel.visible ? hitHandle(sel, e) : null;
-      c.style.cursor = h ? CURSOR[h] : hitLayer(toScene(e)) ? "move" : "default";
+      c.style.cursor = h ? CURSOR[h] : hitLayer(toLayout(e)) ? "move" : "default";
       return;
     }
-    const pt = toScene(e), dx = pt.x - d.x0, dy = pt.y - d.y0, o = d.o;
-    const sc = currentScene(), p = S().project;
+    const pt = toLayout(e), dx = pt.x - d.x0, dy = pt.y - d.y0, o = d.o;
+    const lo = currentLayout(), p = S().project;
     let patch: Partial<Layer> = {};
     if (d.kind === "move") {
       let nx = o.x + dx, ny = o.y + dy;
@@ -173,7 +180,7 @@ export function SceneCanvas() {
           if (Math.abs(v + off - target) < tol) return target - off;
         return v;
       };
-      if (!e.ctrlKey) { nx = snap(nx, o.w, sc.width); ny = snap(ny, o.h, sc.height); }
+      if (!e.ctrlKey) { nx = snap(nx, o.w, lo.width); ny = snap(ny, o.h, lo.height); }
       patch = { x: Math.round(nx), y: Math.round(ny) };
     } else if (d.kind === "resize") {
       const h = d.handle!;
@@ -194,8 +201,8 @@ export function SceneCanvas() {
       patch = { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(hh) };
     } else {
       // Crop keeps the picture's scale: the box shrinks with the crop.
-      const h = d.handle!;
-      const cw = p.width - o.crop.l - o.crop.r, ch = p.height - o.crop.t - o.crop.b;
+      const h = d.handle!, ss = sourceSize(p, o.source);
+      const cw = ss.w - o.crop.l - o.crop.r, ch = ss.h - o.crop.t - o.crop.b;
       const sx = cw / o.w, sy = ch / o.h;
       const crop = { ...o.crop };
       let { x, y, w } = o; let hh = o.h;
@@ -206,38 +213,38 @@ export function SceneCanvas() {
       patch = { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(hh),
         crop: { l: Math.round(crop.l), t: Math.round(crop.t), r: Math.round(crop.r), b: Math.round(crop.b) } };
     }
-    updateLayer(d.sceneId, o.id, patch, true);
+    updateLayer(d.layoutId, o.id, patch, true);
   };
 
   const onUp = () => { if (drag.current) { drag.current = null; S().end(); } };
 
   return (
     <div className="scene-wrap" ref={wrap}>
-      <canvas ref={cv} style={{ width: box.w, height: box.h }} tabIndex={0} aria-label={`${scene?.name} scene`}
+      <canvas ref={cv} style={{ width: box.w, height: box.h }} tabIndex={0} aria-label={`${layout?.name} layout`}
         onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
-        onDoubleClick={e => { const l = hitLayer(toScene(e)); if (l) S().set({ layerId: l.id, dialog: "transform" }); }}
+        onDoubleClick={e => { const l = hitLayer(toLayout(e)); if (l) S().set({ layerId: l.id, dialog: "transform" }); }}
         onContextMenu={e => {
           e.preventDefault();
-          const l = hitLayer(toScene(e)); if (!l) return;
+          const l = hitLayer(toLayout(e)); if (!l) return;
           S().set({ layerId: l.id, clipId: null });
           setMenu({ x: e.clientX, y: e.clientY, layer: l });
         }} />
-      {menu && <ContextMenu x={menu.x} y={menu.y} items={layerMenuItems(scene, menu.layer)} onClose={() => setMenu(null)} />}
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={layerMenuItems(layout, menu.layer)} onClose={() => setMenu(null)} />}
     </div>
   );
 }
 
-/** All scenes side by side, read-only, like the OBS multiview. Click one to edit it. */
+/** All layouts side by side, read-only, like the OBS multiview. Click one to edit it. */
 export function Multiview() {
-  const scenes = useStore(s => s.project.scenes);
+  const layouts = useStore(s => s.project.layouts);
   return (
     <div className="multiview">
-      {scenes.map(sc => <MultiTile key={sc.id} scene={sc} />)}
+      {layouts.map(lo => <MultiTile key={lo.id} layout={lo} />)}
     </div>
   );
 }
 
-function MultiTile({ scene }: { scene: Scene }) {
+function MultiTile({ layout }: { layout: Layout }) {
   const cv = useRef<HTMLCanvasElement>(null);
   const wrap = useRef<HTMLDivElement>(null);
   const [h, setH] = useState(200);
@@ -246,19 +253,19 @@ function MultiTile({ scene }: { scene: Scene }) {
     ro.observe(wrap.current!.parentElement!);
     return () => ro.disconnect();
   }, []);
-  const w = Math.round(h * scene.width / scene.height);
+  const w = Math.round(h * layout.width / layout.height);
   useEffect(() => player.addView(() => {
     const c = cv.current; if (!c) return;
-    const sc = S().project.scenes.find(x => x.id === scene.id); if (!sc) return;
+    const lo = S().project.layouts.find(x => x.id === layout.id); if (!lo) return;
     const dpr = window.devicePixelRatio || 1;
     if (c.width !== Math.round(w * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
-    drawScene(c.getContext("2d")!, sc, c.width / sc.width);
-  }), [scene.id, w, h]);
-  useEffect(() => { player.draw(); }, [scene]);
+    drawLayout(c.getContext("2d")!, lo, c.width / lo.width);
+  }), [layout.id, w, h]);
+  useEffect(() => { player.draw(); }, [layout]);
   return (
-    <div className="tile" ref={wrap} onClick={() => S().set({ sceneId: scene.id, mode: "scene", layerId: null })}>
+    <div className="tile" ref={wrap} onClick={() => S().set({ layoutId: layout.id, mode: "layout", layerId: null })}>
       <canvas ref={cv} style={{ width: w, height: h }} />
-      <span>{scene.name} <small>{scene.width}×{scene.height}</small></span>
+      <span>{layout.name} <small>{layout.width}×{layout.height}</small></span>
     </div>
   );
 }

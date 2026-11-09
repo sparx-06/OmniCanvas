@@ -1,12 +1,12 @@
 import { useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { join } from "@tauri-apps/api/path";
-import { S, currentScene, useStore } from "../store";
-import { exportScene, type ExportResult } from "../engine/ffmpeg";
-import { resizeProgram, fitLayer, fitToScreen } from "../model/defaults";
+import { S, currentLayout, useStore } from "../store";
+import { exportLayout, type ExportResult } from "../engine/ffmpeg";
+import { resizeProgram, fitToScreen } from "../model/defaults";
 import type { Layer } from "../model/types";
-import { even, projectDuration, tc } from "../util";
-import { updateLayer } from "./ScenePreview";
+import { even, projectDuration, sourceLabel, sourceSize, tc } from "../util";
+import { resetLayer, updateLayer } from "./LayoutCanvas";
 
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose?: () => void }) {
   return (
@@ -23,7 +23,7 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
 export function TransformDialog() {
   const project = useStore(s => s.project);
   const layerId = useStore(s => s.layerId);
-  const sc = currentScene();
+  const sc = currentLayout();
   const l = sc.layers.find(x => x.id === layerId);
   const close = () => S().set({ dialog: null });
   if (!l) return <Modal title="Edit Transform" onClose={close}><p>Select a source first.</p><div className="actions"><button className="btn" onClick={close}>Close</button></div></Modal>;
@@ -44,10 +44,10 @@ export function TransformDialog() {
         {num("Crop top", l.crop.t, v => set({ crop: { ...l.crop, t: Math.max(0, v) } }))}
         {num("Crop bottom", l.crop.b, v => set({ crop: { ...l.crop, b: Math.max(0, v) } }))}
       </div>
-      <p className="hint">Position and size are in scene pixels ({sc.width}×{sc.height}). Crop is in pixels of the recording ({project.width}×{project.height}).</p>
+      <p className="hint">Position and size are in layout pixels ({sc.width}×{sc.height}). Crop is in pixels of the source, {sourceLabel(project, l.source)} ({sourceSize(project, l.source).w}×{sourceSize(project, l.source).h}).</p>
       <div className="actions">
-        <button className="btn" onClick={() => set({ ...fitLayer(l.name, project.width, project.height, sc.width, sc.height), id: l.id, name: l.name, visible: l.visible, locked: l.locked })}>Reset</button>
-        <button className="btn" onClick={() => set(fitToScreen(l, project.width, project.height, sc.width, sc.height))}>Fit to screen</button>
+        <button className="btn" onClick={() => set(resetLayer(project, sc, l))}>Reset</button>
+        <button className="btn" onClick={() => set(fitToScreen(project, l, sc.width, sc.height))}>Fit to screen</button>
         <button className="btn" onClick={() => set({ x: 0, y: 0, w: sc.width, h: sc.height })}>Stretch to screen</button>
         <span className="grow" />
         <button className="btn primary" onClick={close}>Close</button>
@@ -85,7 +85,7 @@ const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(
 
 export function ExportDialog() {
   const p = useStore(s => s.project);
-  const [picked, setPicked] = useState<Record<string, boolean>>(() => Object.fromEntries(p.scenes.map(s => [s.id, true])));
+  const [picked, setPicked] = useState<Record<string, boolean>>(() => Object.fromEntries(p.layouts.map(s => [s.id, true])));
   const [folder, setFolder] = useState<string | null>(null);
   const [quality, setQuality] = useState(19);
   const [busy, setBusy] = useState(false);
@@ -101,10 +101,10 @@ export function ExportDialog() {
     setBusy(true); setResults([]); cancelled.current = false;
     const snapshot = JSON.parse(JSON.stringify(S().project));
     const out: ExportResult[] = [];
-    for (const sc of snapshot.scenes) {
+    for (const sc of snapshot.layouts) {
       if (!picked[sc.id] || cancelled.current) continue;
       const path = await join(folder, `${slug(snapshot.name)}-${slug(sc.name)}.mp4`);
-      const r = await exportScene(snapshot, sc, path, quality, f => setProgress(x => ({ ...x, [sc.id]: f })), fn => { cancelRef.current = fn; });
+      const r = await exportLayout(snapshot, sc, path, quality, f => setProgress(x => ({ ...x, [sc.id]: f })), fn => { cancelRef.current = fn; });
       out.push(cancelled.current ? { ...r, error: "Cancelled." } : r);
       setResults([...out]);
     }
@@ -113,10 +113,10 @@ export function ExportDialog() {
 
   return (
     <Modal title="Export" onClose={close}>
-      <p className="hint">Every scene renders from the same timeline ({tc(total, p.fps)} at {p.fps} fps). OmniCanvas uses the NVIDIA encoder when it can and the CPU encoder otherwise.</p>
+      <p className="hint">Every layout renders from the same timeline ({tc(total, p.fps)} at {p.fps} fps). OmniCanvas uses the NVIDIA encoder when it can and the CPU encoder otherwise.</p>
       {!total && <p className="warn">The timeline is empty. Add a clip first.</p>}
       <div className="checks">
-        {p.scenes.map(s => (
+        {p.layouts.map(s => (
           <label key={s.id} className="check">
             <input type="checkbox" checked={!!picked[s.id]} disabled={busy} onChange={e => setPicked(x => ({ ...x, [s.id]: e.target.checked }))} />
             <span>{s.name} <small>{s.width}×{s.height}</small></span>
@@ -132,7 +132,7 @@ export function ExportDialog() {
           <option value={17}>Highest, larger files</option><option value={19}>High (recommended for YouTube)</option><option value={23}>Smaller files</option>
         </select></label>
       {results.length > 0 && <ul className="results">
-        {results.map(r => <li key={r.scene.id}><b>{r.scene.name}</b>{r.error ? <pre className="warn">{r.error}</pre> : <><code className="path">{r.path}</code><small>{r.encoder === "nvenc" ? "NVIDIA encoder" : "CPU encoder"}</small></>}</li>)}
+        {results.map(r => <li key={r.layout.id}><b>{r.layout.name}</b>{r.error ? <pre className="warn">{r.error}</pre> : <><code className="path">{r.path}</code><small>{r.encoder === "nvenc" ? "NVIDIA encoder" : "CPU encoder"}</small></>}</li>)}
       </ul>}
       <div className="actions">
         {busy && <button className="btn" onClick={() => { cancelled.current = true; void cancelRef.current?.(); }}>Cancel</button>}

@@ -1,47 +1,53 @@
-import type { Layer, Project, Scene } from "./types";
-import { cropRect, uid } from "../util";
+import type { Layer, LayerSource, Layout, Project, Track } from "./types";
+import { cropRect, sourceSize, uid } from "../util";
 
-/** A layer that shows the whole program frame, fitted inside the scene (OBS "Fit to screen"). */
-export function fitLayer(name: string, pw: number, ph: number, sw: number, sh: number): Layer {
-  const s = Math.min(sw / pw, sh / ph), w = Math.round(pw * s), h = Math.round(ph * s);
-  return { id: uid(), name, source: "program", visible: true, locked: false,
-    x: Math.round((sw - w) / 2), y: Math.round((sh - h) / 2), w, h, crop: { l: 0, t: 0, r: 0, b: 0 } };
+/** A layer that shows its whole source, fitted inside the layout (OBS "Fit to screen"). */
+export function fitLayer(name: string, source: LayerSource, sw: number, sh: number, lw: number, lh: number): Layer {
+  const s = Math.min(lw / sw, lh / sh), w = Math.round(sw * s), h = Math.round(sh * s);
+  return { id: uid(), name, source, visible: true, locked: false,
+    x: Math.round((lw - w) / 2), y: Math.round((lh - h) / 2), w, h, crop: { l: 0, t: 0, r: 0, b: 0 } };
 }
 
-export function fitToScreen(l: Layer, pw: number, ph: number, sw: number, sh: number): Partial<Layer> {
-  const c = cropRect(l, pw, ph), s = Math.min(sw / c.w, sh / c.h), w = Math.round(c.w * s), h = Math.round(c.h * s);
-  return { x: Math.round((sw - w) / 2), y: Math.round((sh - h) / 2), w, h };
+export function fitToScreen(p: Project, l: Layer, lw: number, lh: number): Partial<Layer> {
+  const ss = sourceSize(p, l.source), c = cropRect(l, ss.w, ss.h);
+  const s = Math.min(lw / c.w, lh / c.h), w = Math.round(c.w * s), h = Math.round(c.h * s);
+  return { x: Math.round((lw - w) / 2), y: Math.round((lh - h) / 2), w, h };
 }
 
-export function horizontalScene(pw: number, ph: number): Scene {
+const track = (trackId: string): LayerSource => ({ type: "track", trackId });
+
+export function horizontalLayout(pw: number, ph: number, trackId: string): Layout {
   return { id: uid(), name: "Horizontal", width: 1920, height: 1080, background: "#000000",
-    layers: [fitLayer("Gameplay", pw, ph, 1920, 1080)] };
+    layers: [fitLayer("Gameplay", track(trackId), pw, ph, 1920, 1080)] };
 }
 
 /**
- * Vertical starting point: two uncropped copies of the recording, stacked.
+ * Vertical starting point: two uncropped copies of the same track, stacked.
  * The app never guesses a crop. The user crops each copy (Alt-drag) and
  * resizes it into place: typically the facecam on top and gameplay below.
  */
-export function verticalScene(pw: number, ph: number): Scene {
+export function verticalLayout(pw: number, ph: number, trackId: string): Layout {
   const W = 1080, H = 1920, h = Math.round(W * ph / pw);
-  const facecam: Layer = { id: uid(), name: "Facecam", source: "program", visible: true, locked: false,
-    x: 0, y: 0, w: W, h, crop: { l: 0, t: 0, r: 0, b: 0 } };
-  const gameplay: Layer = { id: uid(), name: "Gameplay", source: "program", visible: true, locked: false,
-    x: 0, y: h, w: W, h, crop: { l: 0, t: 0, r: 0, b: 0 } };
-  return { id: uid(), name: "Vertical", width: W, height: H, background: "#0b0c0f", layers: [gameplay, facecam] };
+  const base = { source: track(trackId), visible: true, locked: false, w: W, h, crop: { l: 0, t: 0, r: 0, b: 0 } };
+  return { id: uid(), name: "Vertical", width: W, height: H, background: "#0b0c0f",
+    layers: [{ ...base, id: uid(), name: "Gameplay", x: 0, y: h }, { ...base, id: uid(), name: "Facecam", x: 0, y: 0 }] };
+}
+
+export function defaultTracks(): Track[] {
+  return [{ id: "v1", kind: "video", name: "Video 1", muted: false }, { id: "a1", kind: "audio", name: "Audio 1", muted: false }];
 }
 
 export function newProject(): Project {
   const pw = 1920, ph = 1080;
-  return { version: 1, name: "Untitled", width: pw, height: ph, fps: 60, media: [], clips: [],
-    scenes: [horizontalScene(pw, ph), verticalScene(pw, ph)] };
+  return { version: 2, name: "Untitled", width: pw, height: ph, fps: 60, media: [], tracks: defaultTracks(), clips: [],
+    layouts: [horizontalLayout(pw, ph, "v1"), verticalLayout(pw, ph, "v1")] };
 }
 
-/** Change the program size and keep every crop on the same part of the picture. */
+/** Change the program size and keep every track crop on the same part of the picture. */
 export function resizeProgram(p: Project, w: number, h: number) {
   const fx = w / p.width, fy = h / p.height, aspectChanged = Math.abs(w / h - p.width / p.height) > 0.01;
-  for (const s of p.scenes) for (const l of s.layers) {
+  for (const s of p.layouts) for (const l of s.layers) {
+    if (l.source.type !== "track") continue;
     const uncropped = !l.crop.l && !l.crop.r && !l.crop.t && !l.crop.b;
     l.crop = { l: Math.round(l.crop.l * fx), r: Math.round(l.crop.r * fx), t: Math.round(l.crop.t * fy), b: Math.round(l.crop.b * fy) };
     // An uncropped layer keeps the recording's shape when that shape changes.
@@ -50,19 +56,43 @@ export function resizeProgram(p: Project, w: number, h: number) {
   p.width = w; p.height = h;
 }
 
-/** Fill in anything missing so older or hand-edited project files still open. */
+/**
+ * Fill in anything missing so older or hand-edited project files still open.
+ * Version 1 files had "scenes", a fixed "video"/"music" track pair, and layers
+ * that always showed the video track.
+ */
 export function normalizeProject(raw: any): Project {
   const d = newProject();
   if (!raw || typeof raw !== "object") return d;
-  const p: Project = {
-    version: 1,
+  const tracks: Track[] = Array.isArray(raw.tracks) && raw.tracks.length
+    ? raw.tracks.map((t: any) => ({ id: String(t.id), kind: t.kind === "audio" ? "audio" : "video", name: String(t.name || "Track"), muted: !!t.muted }))
+    : defaultTracks();
+  if (!tracks.some(t => t.kind === "video")) tracks.unshift({ id: uid(), kind: "video", name: "Video 1", muted: false });
+  const firstVideo = tracks.find(t => t.kind === "video")!.id;
+  const firstAudio = tracks.find(t => t.kind === "audio")?.id;
+  const legacyTrack = (t: string) => t === "video" ? firstVideo : t === "music" ? (firstAudio ?? firstVideo) : t;
+
+  const media = Array.isArray(raw.media) ? raw.media : [];
+  const mediaIds = new Set(media.map((m: any) => m.id));
+  const trackIds = new Set(tracks.map(t => t.id));
+  const clips = (Array.isArray(raw.clips) ? raw.clips : [])
+    .map((c: any) => ({ ...c, track: legacyTrack(String(c.track)), volume: Number.isFinite(c.volume) ? c.volume : 1 }))
+    .filter((c: any) => mediaIds.has(c.mediaId) && trackIds.has(c.track));
+
+  const rawLayouts = Array.isArray(raw.layouts) ? raw.layouts : Array.isArray(raw.scenes) ? raw.scenes : [];
+  const layouts: Layout[] = rawLayouts.length ? rawLayouts.map((s: any) => ({
+    ...s,
+    layers: (Array.isArray(s.layers) ? s.layers : []).map((l: any) => ({
+      ...l,
+      source: l.source && typeof l.source === "object" && (l.source.type === "track" || l.source.type === "media")
+        ? l.source : { type: "track", trackId: firstVideo },
+    })),
+  })) : d.layouts;
+
+  return {
+    version: 2,
     name: typeof raw.name === "string" ? raw.name : d.name,
     width: +raw.width || d.width, height: +raw.height || d.height, fps: +raw.fps || d.fps,
-    media: Array.isArray(raw.media) ? raw.media : [],
-    clips: Array.isArray(raw.clips) ? raw.clips : [],
-    scenes: Array.isArray(raw.scenes) && raw.scenes.length ? raw.scenes : d.scenes,
+    media, tracks, clips, layouts,
   };
-  const ids = new Set(p.media.map(m => m.id));
-  p.clips = p.clips.filter(c => ids.has(c.mediaId)).map(c => ({ ...c, volume: Number.isFinite(c.volume) ? c.volume : 1 }));
-  return p;
 }

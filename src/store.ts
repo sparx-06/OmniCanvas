@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { Project } from "./model/types";
 import { newProject } from "./model/defaults";
 
-export type PreviewMode = "scene" | "multiview";
+export type PreviewMode = "layout" | "multiview";
 export type Dialog = null | "transform" | "export" | "settings";
 
 interface State {
@@ -13,7 +13,8 @@ interface State {
   future: string[];
   time: number;
   playing: boolean;
-  sceneId: string;
+  layoutId: string;
+  trackId: string | null;   // target track for adding media
   layerId: string | null;
   clipId: string | null;
   mode: PreviewMode;
@@ -44,8 +45,8 @@ export const useStore = create<State & Actions>((set, get) => ({
   project: newProject(),
   path: null, dirty: false, past: [], future: [],
   time: 0, playing: false,
-  sceneId: "", layerId: null, clipId: null,
-  mode: "scene", pps: 40, dialog: null, proxyProgress: {}, toast: null,
+  layoutId: "", trackId: null, layerId: null, clipId: null,
+  mode: "layout", pps: 40, dialog: null, proxyProgress: {}, toast: null,
 
   set: p => set(p),
   commit: fn => {
@@ -79,7 +80,7 @@ export const useStore = create<State & Actions>((set, get) => ({
     set({ project: JSON.parse(future[future.length - 1]), future: future.slice(0, -1), past: [...past, JSON.stringify(project)], dirty: true });
   },
   load: (p, path) => set({ project: p, path, dirty: false, past: [], future: [], time: 0,
-    sceneId: p.scenes[0]?.id ?? "", layerId: null, clipId: null }),
+    layoutId: p.layouts[0]?.id ?? "", trackId: null, layerId: null, clipId: null }),
   notify: msg => {
     set({ toast: msg });
     window.clearTimeout(toastTimer);
@@ -88,6 +89,6 @@ export const useStore = create<State & Actions>((set, get) => ({
 }));
 
 export const S = () => useStore.getState();
-export const currentScene = () => {
-  const s = S(); return s.project.scenes.find(x => x.id === s.sceneId) ?? s.project.scenes[0];
+export const currentLayout = () => {
+  const s = S(); return s.project.layouts.find(x => x.id === s.layoutId) ?? s.project.layouts[0];
 };

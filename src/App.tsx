@@ -3,8 +3,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { S, useStore } from "./store";
 import { player } from "./engine/player";
 import { deleteSelection, importMedia, newDoc, openDoc, saveDoc, splitAtCursor } from "./actions";
-import { MediaBin, ScenesDock, LayersDock } from "./components/Docks";
-import { SceneCanvas, Multiview } from "./components/ScenePreview";
+import { MediaBin, LayoutsDock, LayersDock } from "./components/Docks";
+import { LayoutCanvas, Multiview } from "./components/LayoutCanvas";
 import { Timeline } from "./components/Timeline";
 import { ExportDialog, SettingsDialog, TransformDialog } from "./components/Dialogs";
 import { fileName, projectDuration, tc } from "./util";
@@ -25,7 +25,7 @@ function Transport() {
       <span className="tc dim">/ {tc(projectDuration(p), p.fps)}</span>
       <span className="grow" />
       <div className="seg" role="tablist" aria-label="Preview">
-        <button role="tab" aria-selected={mode === "scene"} className={mode === "scene" ? "on" : ""} onClick={() => S().set({ mode: "scene" })}>Scene</button>
+        <button role="tab" aria-selected={mode === "layout"} className={mode === "layout" ? "on" : ""} onClick={() => S().set({ mode: "layout" })}>Layout</button>
         <button role="tab" aria-selected={mode === "multiview"} className={mode === "multiview" ? "on" : ""} onClick={() => S().set({ mode: "multiview" })}>Multiview</button>
       </div>
     </div>
@@ -59,7 +59,7 @@ export default function App() {
   const name = useStore(s => s.project.name), path = useStore(s => s.path), dirty = useStore(s => s.dirty);
   const project = useStore(s => s.project);
 
-  useEffect(() => { if (!S().sceneId) S().set({ sceneId: S().project.scenes[0]?.id ?? "" }); player.seek(0); }, []);
+  useEffect(() => { if (!S().layoutId) S().set({ layoutId: S().project.layouts[0]?.id ?? "" }); player.seek(0); }, []);
   useEffect(() => { player.draw(); }, [project]);
   useEffect(() => {
     const title = `${dirty ? "• " : ""}${path ? fileName(path) : name} - OmniCanvas`;
@@ -100,10 +100,10 @@ export default function App() {
       <MenuBar />
       <aside className="left"><MediaBin /></aside>
       <main className="center">
-        <div className="preview">{mode === "scene" ? <SceneCanvas /> : <Multiview />}</div>
+        <div className="preview">{mode === "layout" ? <LayoutCanvas /> : <Multiview />}</div>
         <Transport />
       </main>
-      <aside className="right"><ScenesDock /><LayersDock /></aside>
+      <aside className="right"><LayoutsDock /><LayersDock /></aside>
       <Timeline />
       {dialog === "transform" && <TransformDialog />}
       {dialog === "export" && <ExportDialog />}

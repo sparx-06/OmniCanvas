@@ -17,36 +17,50 @@ export interface Media {
   hasAudio: boolean;
 }
 
-export type TrackId = "video" | "music";
+export type TrackKind = "video" | "audio";
+
+/** A timeline track. Video tracks also carry the audio of their clips. */
+export interface Track {
+  id: string;
+  kind: TrackKind;
+  name: string;
+  muted: boolean;
+}
 
 export interface Clip {
   id: string;
   mediaId: string;
-  track: TrackId;
+  track: string;           // Track.id
   start: number;           // timeline seconds
   in: number;              // seconds inside the media
   out: number;             // seconds inside the media
   volume: number;          // 1 = unchanged
 }
 
-// Crop is in program pixels, measured in from each edge (same as OBS).
+// Crop is in pixels of the layer's source, measured in from each edge (as in OBS).
+// For a track source that is the program size; for a file it is the file's size.
 export interface Crop { l: number; t: number; r: number; b: number }
 
-// A layer is one placement of the timeline video inside a scene,
-// like a scene item in OBS. A scene can hold the same video many times.
+/** What a layer shows: whatever is playing on a video track, or one file for the whole video. */
+export type LayerSource =
+  | { type: "track"; trackId: string }
+  | { type: "media"; mediaId: string };
+
+// A layer is one placement of a source inside a layout, like a source in an OBS scene.
+// Several layers can show the same track with different crops.
 export interface Layer {
   id: string;
   name: string;
-  source: "program";
+  source: LayerSource;
   visible: boolean;
   locked: boolean;
-  x: number; y: number; w: number; h: number;  // scene pixels
+  x: number; y: number; w: number; h: number;  // layout pixels
   crop: Crop;
 }
 
-// A scene is an output format: a canvas size plus its layers.
+// A layout is an output format: a canvas size plus its layers.
 // layers[0] is drawn first (back); the last layer is in front.
-export interface Scene {
+export interface Layout {
   id: string;
   name: string;
   width: number;
@@ -56,12 +70,13 @@ export interface Scene {
 }
 
 export interface Project {
-  version: 1;
+  version: 2;
   name: string;
-  width: number;    // program size: every clip is fitted into this frame
+  width: number;    // program size: every clip on a video track is fitted into this frame
   height: number;
   fps: number;
   media: Media[];
+  tracks: Track[];
   clips: Clip[];
-  scenes: Scene[];
+  layouts: Layout[];
 }
