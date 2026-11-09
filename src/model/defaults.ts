@@ -37,10 +37,33 @@ export function defaultTracks(): Track[] {
   return [{ id: "v1", kind: "video", name: "Video 1", muted: false }, { id: "a1", kind: "audio", name: "Audio 1", muted: false }];
 }
 
+/** A layout with no layers yet. Layers appear once a video track has a clip. */
+export function emptyLayout(name: string, width: number, height: number, background = "#000000"): Layout {
+  return { id: uid(), name, width, height, background, layers: [] };
+}
+
 export function newProject(): Project {
-  const pw = 1920, ph = 1080;
-  return { version: 2, name: "Untitled", width: pw, height: ph, fps: 60, media: [], tracks: defaultTracks(), clips: [],
-    layouts: [horizontalLayout(pw, ph, "v1"), verticalLayout(pw, ph, "v1")] };
+  return { version: 2, name: "Untitled", width: 1920, height: 1080, fps: 60, media: [], tracks: defaultTracks(), clips: [],
+    layouts: [emptyLayout("Horizontal", 1920, 1080), emptyLayout("Vertical", 1080, 1920, "#0b0c0f")] };
+}
+
+/**
+ * Layers for a video track that just got its first clip, added to every layout
+ * that doesn't show that track yet. Uncropped: the user crops them.
+ * An empty portrait layout gets two stacked copies, ready for facecam and gameplay.
+ */
+export function layersForNewTrack(p: Project, trackId: string, name: string) {
+  for (const lo of p.layouts) {
+    if (lo.layers.some(l => l.source.type === "track" && l.source.trackId === trackId)) continue;
+    const src = { type: "track" as const, trackId };
+    if (!lo.layers.length && lo.height > lo.width) {
+      const h = Math.round(lo.width * p.height / p.width);
+      const base = { source: src, visible: true, locked: false, w: lo.width, h, crop: { l: 0, t: 0, r: 0, b: 0 } };
+      lo.layers.push({ ...base, id: uid(), name: `${name} (bottom)`, x: 0, y: h }, { ...base, id: uid(), name: `${name} (top)`, x: 0, y: 0 });
+    } else {
+      lo.layers.push(fitLayer(name, src, p.width, p.height, lo.width, lo.height));
+    }
+  }
 }
 
 /** Change the program size and keep every track crop on the same part of the picture. */

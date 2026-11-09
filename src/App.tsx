@@ -7,6 +7,7 @@ import { MediaBin, LayoutsDock, LayersDock } from "./components/Docks";
 import { LayoutCanvas, Multiview } from "./components/LayoutCanvas";
 import { Timeline } from "./components/Timeline";
 import { ExportDialog, SettingsDialog, TransformDialog } from "./components/Dialogs";
+import { DEFAULT_SIZES, Splitter, usePanelSizes } from "./components/Splitter";
 import { fileName, projectDuration, tc } from "./util";
 
 function Transport() {
@@ -58,6 +59,7 @@ export default function App() {
   const toast = useStore(s => s.toast);
   const name = useStore(s => s.project.name), path = useStore(s => s.path), dirty = useStore(s => s.dirty);
   const project = useStore(s => s.project);
+  const [sizes, setSize] = usePanelSizes();
 
   useEffect(() => { if (!S().layoutId) S().set({ layoutId: S().project.layouts[0]?.id ?? "" }); player.seek(0); }, []);
   useEffect(() => { player.draw(); }, [project]);
@@ -96,14 +98,21 @@ export default function App() {
   }, []);
 
   return (
-    <div className="app">
+    <div className="app" style={{ gridTemplateColumns: `${sizes.left}px 6px minmax(0, 1fr) 6px ${sizes.right}px`, gridTemplateRows: `auto minmax(0, 1fr) 6px ${sizes.timeline}px` }}>
       <MenuBar />
       <aside className="left"><MediaBin /></aside>
+      <Splitter axis="x" area="sl" label="Resize the media panel" value={sizes.left} sign={1} onChange={v => setSize("left", v)} onReset={() => setSize("left", DEFAULT_SIZES.left)} />
       <main className="center">
         <div className="preview">{mode === "layout" ? <LayoutCanvas /> : <Multiview />}</div>
         <Transport />
       </main>
-      <aside className="right"><LayoutsDock /><LayersDock /></aside>
+      <Splitter axis="x" area="sr" label="Resize the layouts and layers panel" value={sizes.right} sign={-1} onChange={v => setSize("right", v)} onReset={() => setSize("right", DEFAULT_SIZES.right)} />
+      <aside className="right" style={{ gridTemplateRows: `${sizes.layouts}px 6px minmax(0, 1fr)` }}>
+        <LayoutsDock />
+        <Splitter axis="y" label="Resize the layouts list" value={sizes.layouts} sign={1} onChange={v => setSize("layouts", v)} onReset={() => setSize("layouts", DEFAULT_SIZES.layouts)} />
+        <LayersDock />
+      </aside>
+      <Splitter axis="y" area="st" label="Resize the timeline" value={sizes.timeline} sign={-1} onChange={v => setSize("timeline", v)} onReset={() => setSize("timeline", DEFAULT_SIZES.timeline)} />
       <Timeline />
       {dialog === "transform" && <TransformDialog />}
       {dialog === "export" && <ExportDialog />}

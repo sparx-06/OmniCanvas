@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { S, useStore } from "../store";
 import { player } from "../engine/player";
 import { addClip, addTrack, deleteSelection, deleteTrack, splitAtCursor, trackAccepts } from "../actions";
+import { layersForNewTrack } from "../model/defaults";
 import type { Clip, Track } from "../model/types";
 import { clamp, clipEnd, projectDuration, snapFrame, tc } from "../util";
 
@@ -107,6 +108,10 @@ export function Timeline() {
       if (mode === "move" && overlaps(cur.track, cur.start, clipEnd(cur))) {
         S().live(p => { Object.assign(p.clips.find(x => x.id === c.id)!, { start: o.start, track: o.track }); });
         S().notify("Clips on the same track can't overlap. Move it to an empty spot.");
+      } else if (cur.track !== o.track) {
+        // Moving a clip onto a video track nobody shows yet gives layouts a layer for it.
+        const tr = S().project.tracks.find(t => t.id === cur.track);
+        if (tr?.kind === "video") S().live(p => layersForNewTrack(p, tr.id, tr.name));
       }
       setBad(null);
       S().end();

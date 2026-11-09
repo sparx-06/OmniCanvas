@@ -31,8 +31,9 @@ CPU encoder otherwise.
    cursor on the selected track. Music and sound go on an audio track. Add
    tracks with **+ Video track** and **+ Audio track**.
 3. Cut the video on the timeline.
-4. Pick a layout in **Layouts** and set up its layers in the preview. The
-   Vertical layout starts with two uncropped copies of Video 1, stacked.
+4. Pick a layout in **Layouts** and set up its layers in the preview. Layouts
+   start empty. When a video track gets its first clip, each layout gets a
+   layer for that track; the Vertical layout gets two uncropped copies, stacked.
    Alt-drag to crop each one (for example the facecam and the gameplay), then
    drag and resize them into place. OmniCanvas never sets a crop for you.
 5. **Export** renders every ticked layout into the folder you choose.
@@ -67,6 +68,11 @@ CPU encoder otherwise.
 | More | Right-click: Fit to Screen, Stretch to Screen, Center, order, lock |
 
 **Multiview** shows every layout side by side. Click one to edit it.
+
+### Panels
+
+Drag the dividers between panels to resize them. Double-click a divider to
+reset it. Sizes are remembered.
 
 ### Files OBS writes
 

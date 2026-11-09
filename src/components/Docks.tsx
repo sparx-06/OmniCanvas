@@ -143,7 +143,7 @@ export function LayersDock() {
             </span>
           </li>
         ))}
-        {!lo.layers.length && <li className="empty">No layers. Press + to add a video track or a file.</li>}
+        {!lo.layers.length && <li className="empty">No layers yet. Place a clip on a video track and its layers appear here, or press + to add a track or a file.</li>}
       </ul>
       {sel && <label className="shows">Shows
         <select value={srcKey(sel.source)} onChange={e => setLayerSource(lo.id, sel.id, parseKey(e.target.value))}>

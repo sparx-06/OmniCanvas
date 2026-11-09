@@ -2,7 +2,7 @@
 import { ask, open, save } from "@tauri-apps/plugin-dialog";
 import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import type { Clip, LayerSource, Media, Project, Track, TrackKind } from "./model/types";
-import { newProject, normalizeProject, resizeProgram, fitLayer } from "./model/defaults";
+import { newProject, normalizeProject, resizeProgram, fitLayer, layersForNewTrack } from "./model/defaults";
 import { S, currentLayout } from "./store";
 import { probe, makeProxy } from "./engine/ffmpeg";
 import { player } from "./engine/player";
@@ -73,7 +73,12 @@ export function addClip(mediaId: string, trackId: string, at?: number) {
   const len = m.duration || 5;
   for (const c of [...same].sort((a, b) => a.start - b.start)) if (start < clipEnd(c) && start + len > c.start) start = clipEnd(c);
   const clip: Clip = { id: uid(), mediaId, track: trackId, start, in: 0, out: len, volume: 1 };
-  st.commit(pr => { pr.clips.push(clip); });
+  const firstOnTrack = tr.kind === "video" && !same.length;
+  st.commit(pr => {
+    pr.clips.push(clip);
+    // The first clip on a video track gives every layout a layer for it.
+    if (firstOnTrack) layersForNewTrack(pr, trackId, tr.name);
+  });
   st.set({ clipId: clip.id, trackId });
 }
 
@@ -113,17 +118,10 @@ function newTrack(p: Project, kind: TrackKind): Track {
   return t;
 }
 
-/**
- * Add a track. A new video track also gets a layer on top of every layout, so
- * what is placed on it shows up straight away; the layer can be removed.
- */
+/** Add an empty track. Layouts get a layer for it when its first clip is placed. */
 export function addTrack(kind: TrackKind) {
   let id = "";
-  S().commit(p => {
-    const t = newTrack(p, kind); id = t.id;
-    if (kind === "video") for (const lo of p.layouts)
-      lo.layers.push(fitLayer(t.name, { type: "track", trackId: t.id }, p.width, p.height, lo.width, lo.height));
-  });
+  S().commit(p => { id = newTrack(p, kind).id; });
   S().set({ trackId: id });
 }
 
