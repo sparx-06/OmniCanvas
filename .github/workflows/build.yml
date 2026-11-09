@@ -40,12 +40,22 @@ jobs:
 
       - run: npm ci
 
-      - uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build the installer
+        run: npm run tauri build
+
+      - name: Keep the installer as a build artifact
+        uses: actions/upload-artifact@v4
         with:
-          tagName: build-${{ github.run_number }}
-          releaseName: "OmniCanvas build ${{ github.run_number }}"
-          releaseBody: "Download the file ending in -setup.exe below and run it. Windows may warn that the app is unsigned; choose More info, then Run anyway."
-          releaseDraft: false
+          name: OmniCanvas-setup
+          path: src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+
+      - name: Publish the installer on the Releases page
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: "OmniCanvas build ${{ github.run_number }}"
+          body: "Download the file ending in -setup.exe below and run it. Windows may warn that the app is unsigned; choose More info, then Run anyway."
           prerelease: true
+          files: src-tauri/target/release/bundle/nsis/*-setup.exe
+          fail_on_unmatched_files: true
